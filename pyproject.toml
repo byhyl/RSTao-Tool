@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "RSTao-Tool"
 version = "2.1.0"
-description = "遥感影像处理与矢量编辑集成系统"
+description = "閬ユ劅褰卞儚澶勭悊涓庣煝閲忕紪杈戦泦鎴愮郴缁?
 readme = "README.md"
 license = {text = "Proprietary"}
 authors = [
@@ -60,4 +60,4 @@ pythonpath = ["."]
 name = "RSTao-Tool"
 onefile = false
 windowed = true
-icon = "icon.ico"
+icon = "assets/icon.ico"
