@@ -398,7 +398,7 @@ class ActivationUI:
             return
 
         # 激活成功
-        messagebox.showinfo("激活成功", "软件正常启动")
+        self.root.withdraw()
         self.root.destroy()
         start_main()
 
@@ -425,7 +425,7 @@ class ActivationUI:
             return
 
         self.progress_label.configure(text="")
-        messagebox.showinfo("激活成功", "软件正常启动")
+        self.root.withdraw()
         self.root.destroy()
         start_main()
 
