@@ -1,0 +1,36 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# 环境
+venv/
+.env
+
+# 授权/安全敏感文件
+.license.dat
+.salt.dat
+*.log
+auth.log
+rstao_tool.log
+
+# 数据库
+server/activation.db
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# 临时文件
+*.tmp
+*.temp
+# 打包产物
+*.exe
+dist/
+build/
+# 管理员配置（含令牌，切勿提交）
+.admin_config.json
