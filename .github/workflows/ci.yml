@@ -60,7 +60,7 @@ jobs:
 
       - name: Build EXE
         run: |
-          pyinstaller --onefile --windowed --name RSTao-Tool --icon assets/icon.ico --add-data "i18n;i18n" main.py
+          pyinstaller --onefile --windowed --name RSTao-Tool --icon assets/icon.ico --add-data "i18n;i18n" --add-data "assets;assets" main.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
