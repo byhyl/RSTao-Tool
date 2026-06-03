@@ -633,7 +633,7 @@ class MainWindow(ctk.CTk):
                 self.match_tab.save_result()
             elif cur_tab == "矢量编辑" and self.vector_tab:
                 self.vector_tab.export_file()
-            messagebox.showinfo("成功", "导出成功")
+            # 各标签页内部自行提示（取消时不弹窗）
         except Exception as e:
             logger.error(f"导出 {cur_tab} 失败", exc_info=True)
             messagebox.showerror("导出失败", f"导出失败：{str(e)}")
