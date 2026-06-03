@@ -252,11 +252,11 @@ class AuthManager:
             if result.get("success"):
                 license_key = result.get("license_key")
                 if license_key and self.save_license(license_key):
-                    logger.info("在线激活成功")
-                    return True, "在线激活成功"
-                return False, result.get("message", "激活失败：无效的许可密钥")
+                    logger.info("??????")
+                    return True, "??????"
+                return False, "License save failed - please restart admin tool"
             else:
-                return False, result.get("message", "激活失败")
+                return False, result.get("message", "????")
 
         except urllib.error.HTTPError as e:
             error_body = ""
