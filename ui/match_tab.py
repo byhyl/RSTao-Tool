@@ -358,7 +358,7 @@ class MatchTab(ctk.CTkFrame):
             messagebox.showerror("错误", f"匹配失败：{str(e)}")
 
     def save_result(self):
-        if not self.result_img: 
+        if self.result_img is None: 
             messagebox.showwarning("提示", "没有可保存的结果")
             return
         p = filedialog.asksaveasfilename(defaultextension=".png", filetypes=[("PNG图像", "*.png"),("JPG图像", "*.jpg")])
