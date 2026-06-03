@@ -34,3 +34,13 @@ dist/
 build/
 # 管理员配置（含令牌，切勿提交）
 .admin_config.json
+
+# 管理端文件（不随客户端分发）
+admin_tool.py
+server/
+key_generator.py
+
+# 管理端文件（不随客户端分发）
+admin_tool.py
+server/
+key_generator.py
