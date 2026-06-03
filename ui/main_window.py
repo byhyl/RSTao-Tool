@@ -6,6 +6,7 @@ from tkinter import filedialog, messagebox
 from typing import Callable, Dict, List, Optional
 
 import customtkinter as ctk
+import tkinter as tk
 from PIL import Image
 
 from common.crypto import aes_gcm_decrypt
@@ -279,7 +280,7 @@ class MainWindow(ctk.CTk):
         self.vector_tab: Optional[VectorTab] = None
 
         self.project_name_label: Optional[ctk.CTkLabel] = None
-        self.notebook: Optional[ctk.CTkTabview] = None
+        # notebook replaced by menu bar
 
         self.main_container = ctk.CTkFrame(self, fg_color=THEME["bg"])
         self.main_container.pack(fill="both", expand=True)
@@ -306,14 +307,15 @@ class MainWindow(ctk.CTk):
         self._clear_main_container()
 
         try:
+            self.create_menu_bar()
             self.create_ribbon()
 
-            self.notebook = ctk.CTkTabview(self.main_container, corner_radius=8)
-            self.notebook.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+            # 内容容器（替代原来的标签页）
+            self.content_frame = ctk.CTkFrame(self.main_container, fg_color=THEME["bg"])
+            self.content_frame.pack(fill="both", expand=True, padx=10, pady=(0, 0))
 
             self.create_statusbar()
-
-            self.init_tabs()
+            self.init_panels()
 
             if self.project_manager.current_project:
                 project_name = self.project_manager.current_project.get("project_name", "未知项目")
@@ -326,102 +328,104 @@ class MainWindow(ctk.CTk):
             messagebox.showerror("错误", f"界面初始化失败：{str(e)}")
             self.show_welcome()
 
+    def create_menu_bar(self):
+        """创建菜单栏（仿 ArcMap/ENVI 风格）"""
+        self.menubar = tk.Menu(self)
+
+        # === 文件菜单 ===
+        file_menu = tk.Menu(self.menubar, tearoff=0)
+        file_menu.add_command(label="新建项目", command=self.new_project, accelerator="Ctrl+N")
+        file_menu.add_command(label="打开项目", command=self.open_project, accelerator="Ctrl+O")
+        file_menu.add_separator()
+        file_menu.add_command(label="保存", command=self.save_project, accelerator="Ctrl+S")
+        file_menu.add_command(label="导出当前结果", command=self.export_current, accelerator="Ctrl+E")
+        file_menu.add_separator()
+        file_menu.add_command(label="退出", command=self.quit)
+        self.menubar.add_cascade(label="文件", menu=file_menu)
+
+        # === 功能菜单 ===
+        func_menu = tk.Menu(self.menubar, tearoff=0)
+        func_menu.add_command(label="特征检测", command=lambda: self.switch_panel("feature"))
+        func_menu.add_command(label="影像匹配", command=lambda: self.switch_panel("match"))
+        func_menu.add_command(label="矢量编辑", command=lambda: self.switch_panel("vector"))
+        self.menubar.add_cascade(label="功能", menu=func_menu)
+
+        # === 设置菜单 ===
+        settings_menu = tk.Menu(self.menubar, tearoff=0)
+        settings_menu.add_command(label="偏好设置", command=lambda: self.switch_panel("settings"))
+        self.menubar.add_cascade(label="设置", menu=settings_menu)
+
+        # === 帮助菜单 ===
+        help_menu = tk.Menu(self.menubar, tearoff=0)
+        help_menu.add_command(label="使用帮助", command=self.show_help)
+        help_menu.add_command(label="关于 RSTao-Tool", command=self.show_about)
+        self.menubar.add_cascade(label="帮助", menu=help_menu)
+
+        self.config(menu=self.menubar)
+
+        # 快捷键
+        self.bind_all("<Control-n>", lambda e: self.new_project())
+        self.bind_all("<Control-o>", lambda e: self.open_project())
+        self.bind_all("<Control-s>", lambda e: self.save_project())
+        self.bind_all("<Control-e>", lambda e: self.export_current())
+
+    def init_panels(self):
+        """初始化功能面板"""
+        self.panels = {}
+        self.current_panel = None
+
+        self.panels["feature"] = FeatureTab(self.content_frame, self.status_vars)
+        self.panels["match"] = MatchTab(self.content_frame, self.status_vars)
+        self.panels["vector"] = VectorTab(self.content_frame, self.status_vars)
+        self.panels["settings"] = SettingsTab(self.content_frame)
+
+        # 兼容旧代码引用
+        self.feature_tab = self.panels["feature"]
+        self.match_tab = self.panels["match"]
+        self.vector_tab = self.panels["vector"]
+        self.settings_tab = self.panels["settings"]
+
+        # 默认显示第一个
+        self.switch_panel("feature")
+
+    def switch_panel(self, name):
+        """切换显示的功能面板"""
+        if self.current_panel:
+            self.current_panel.pack_forget()
+        panel = self.panels.get(name)
+        if panel:
+            panel.pack(fill="both", expand=True)
+            self.current_panel = panel
+
+
     def _clear_main_container(self):
         for widget in self.main_container.winfo_children():
             widget.destroy()
 
     def _prompt_save_project(self) -> bool:
-        if self.project_manager.current_project and self.notebook:
+        if self.project_manager.current_project and hasattr(self, 'current_panel') and self.current_panel:
             if messagebox.askyesno("提示", "当前项目未保存，是否保存？"):
                 return self.save_project()
         return True
 
     def create_ribbon(self):
+        """工具栏：功能模块快速切换"""
         self.ribbon = ctk.CTkFrame(
             self.main_container,
             height=Config.UI_CONSTANTS["ribbon_height"],
             corner_radius=0,
             fg_color=THEME["panel"],
         )
-        self.ribbon.pack(fill="x", padx=10, pady=(10, 0))
+        self.ribbon.pack(fill="x", padx=10, pady=(0, 0))
 
-        file_frame = ctk.CTkFrame(self.ribbon, fg_color="transparent")
-        file_frame.pack(side="left", padx=10, pady=10)
+        mod_frame = ctk.CTkFrame(self.ribbon, fg_color="transparent")
+        mod_frame.pack(side="left", padx=10, pady=8)
 
-        new_icon = load_icon("new", Config.UI_CONSTANTS["btn_icon_size"])
-        ctk.CTkButton(
-            file_frame,
-            text="新建",
-            image=new_icon,
-            compound="top",
-            width=60,
-            height=40,
-            font=FONT_SMALL,
-            command=self.new_project,
-        ).pack(side="left", padx=2)
-
-        open_icon = load_icon("open", Config.UI_CONSTANTS["btn_icon_size"])
-        ctk.CTkButton(
-            file_frame,
-            text="打开",
-            image=open_icon,
-            compound="top",
-            width=60,
-            height=40,
-            font=FONT_SMALL,
-            command=self.open_project,
-        ).pack(side="left", padx=2)
-
-        save_icon = load_icon("save", Config.UI_CONSTANTS["btn_icon_size"])
-        ctk.CTkButton(
-            file_frame,
-            text="保存",
-            image=save_icon,
-            compound="top",
-            width=60,
-            height=40,
-            font=FONT_SMALL,
-            command=self.save_project,
-        ).pack(side="left", padx=2)
-
-        export_icon = load_icon("export", Config.UI_CONSTANTS["btn_icon_size"])
-        ctk.CTkButton(
-            file_frame,
-            text="导出",
-            image=export_icon,
-            compound="top",
-            width=60,
-            height=40,
-            font=FONT_SMALL,
-            command=self.export_current,
-        ).pack(side="left", padx=2)
-
-        help_frame = ctk.CTkFrame(self.ribbon, fg_color="transparent")
-        help_frame.pack(side="right", padx=10, pady=10)
-
-        help_icon = load_icon("help", Config.UI_CONSTANTS["btn_icon_size"])
-        ctk.CTkButton(
-            help_frame,
-            text="帮助",
-            image=help_icon,
-            compound="top",
-            width=60,
-            height=40,
-            font=FONT_SMALL,
-            command=self.show_help,
-        ).pack(side="left", padx=2)
-
-        about_icon = load_icon("about", Config.UI_CONSTANTS["btn_icon_size"])
-        ctk.CTkButton(
-            help_frame,
-            text="关于",
-            image=about_icon,
-            compound="top",
-            width=60,
-            height=40,
-            font=FONT_SMALL,
-            command=self.show_about,
-        ).pack(side="left", padx=2)
+        for name, label in [("feature", "特征检测"), ("match", "影像匹配"), ("vector", "矢量编辑")]:
+            ctk.CTkButton(
+                mod_frame, text=label, width=90, height=32,
+                font=FONT_SMALL, command=lambda n=name: self.switch_panel(n)
+            ).pack(side="left", padx=2)
 
     def create_statusbar(self):
         self.statusbar = ctk.CTkFrame(
@@ -457,20 +461,7 @@ class MainWindow(ctk.CTk):
             self.statusbar, text="|", font=FONT_SMALL, text_color=THEME["text_secondary"]
         ).pack(side="left")
 
-    def init_tabs(self):
-        try:
-            self.feature_tab = FeatureTab(self.notebook.add("特征检测"), self.status_vars)
-            self.feature_tab.pack(fill="both", expand=True)
-
-            self.match_tab = MatchTab(self.notebook.add("影像匹配"), self.status_vars)
-            self.match_tab.pack(fill="both", expand=True)
-
-            self.vector_tab = VectorTab(self.notebook.add("矢量编辑"), self.status_vars)
-            self.settings_tab = SettingsTab(self.notebook.add("设置"))
-            self.vector_tab.pack(fill="both", expand=True)
-        except Exception as e:
-            logger.error("初始化标签页失败", exc_info=True)
-            messagebox.showerror("错误", f"标签页初始化失败：{str(e)}")
+# init_tabs replaced by init_panels
 
     def new_project(self):
         if not self._prompt_save_project():
@@ -538,7 +529,7 @@ class MainWindow(ctk.CTk):
         if not self.project_manager.current_project:
             return self.save_project_as()
 
-        if not self.notebook:
+        if not hasattr(self, "current_panel") or not self.current_panel:
             messagebox.showwarning("提示", "请先创建或打开一个项目")
             return
 
@@ -546,7 +537,7 @@ class MainWindow(ctk.CTk):
             feature_state = self.feature_tab.get_state() if self.feature_tab else {}
             match_state = self.match_tab.get_state() if self.match_tab else {}
             vector_state = self.vector_tab.get_state() if self.vector_tab else {}
-            current_tab = self.notebook.get()
+            current_tab = "特征检测"  # default
 
             if self.project_manager.save_project(
                 feature_state, match_state, vector_state, current_tab
@@ -591,13 +582,14 @@ class MainWindow(ctk.CTk):
 
     def restore_project_state(self):
         project = self.project_manager.current_project
-        if not project or not self.notebook:
+        if not project:
             return
 
         try:
             current_tab = project.get("current_tab")
             if current_tab:
-                self.notebook.set(current_tab)
+                tab_map = {"特征检测":"feature","影像匹配":"match","矢量编辑":"vector"}
+                self.switch_panel(tab_map.get(current_tab, "feature"))
 
             if self.feature_tab and project.get("feature_tab"):
                 self.feature_tab.set_state(project["feature_tab"])
@@ -623,7 +615,7 @@ class MainWindow(ctk.CTk):
             sys.exit(1)
 
     def export_current(self):
-        if not self.notebook:
+        if not hasattr(self, "current_panel") or not self.current_panel:
             messagebox.showwarning("提示", "请先创建或打开一个项目")
             return
 
