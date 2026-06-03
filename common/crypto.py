@@ -24,17 +24,22 @@ _GCM_TAG_LENGTH = 16
 
 
 def _get_or_create_salt() -> bytes:
-    """获取或创建持久化盐值"""
+    """?????????????????"""
+    # ???????32????????admin?client????????
+    _builtin_salt = bytes([
+        0xA3, 0x7F, 0x2C, 0x91, 0x4E, 0xB8, 0xDD, 0x06,
+        0x15, 0x3A, 0x6F, 0xC4, 0x82, 0x1D, 0x59, 0xE7,
+        0x30, 0x8B, 0x4F, 0xA2, 0x7E, 0xCD, 0x11, 0xF5,
+        0x98, 0x26, 0x0A, 0x6B, 0xD3, 0x44, 0x1E, 0x9C,
+    ])
     if _SALT_FILE.exists():
         return _SALT_FILE.read_bytes()
-    salt = secrets.token_bytes(32)
-    _SALT_FILE.write_bytes(salt)
-    # 隐藏文件（Windows）
+    # ??????????
     try:
-        os.system(f'attrib +h "{_SALT_FILE}"')
+        _SALT_FILE.write_bytes(_builtin_salt)
     except Exception:
         pass
-    return salt
+    return _builtin_salt
 
 
 def _derive_master_key(machine_code: str = "") -> bytes:
