@@ -158,13 +158,20 @@ class AuthManager:
             logger.warning("授权解密失败，文件可能被篡改")
             return False, "授权文件无效或被篡改"
 
-        # 验证机器码
-        if machine_code not in decrypted and machine_code != "UNKNOWN":
+        # 验证机器码（兼容两种格式）
+        parts = decrypted.split("|")
+        if len(parts) >= 2:
+            identifier = parts[0]
+            fingerprint = self.get_device_fingerprint()
+            if machine_code not in identifier and identifier not in fingerprint:
+                logger.warning(f"机器码不匹配: {machine_code}")
+                return False, "机器码不匹配"
+        elif machine_code not in decrypted and machine_code != "UNKNOWN":
             logger.warning(f"机器码不匹配: {machine_code}")
             return False, "机器码不匹配"
 
         # 验证过期时间
-        if self.is_expired(decrypted.split("|")[1] if "|" in decrypted else "0"):
+        if self.is_expired(parts[1] if len(parts) >= 2 else "0"):
             return False, "授权已过期"
 
         # ??????????????
@@ -213,18 +220,30 @@ class AuthManager:
 
 
     def save_license(self, key: str) -> bool:
-        """保存授权密钥"""
+        """保存授权密钥（兼容离线/在线两种格式）"""
         machine_code = self.get_machine_code()
-        expire_ts = self.decrypt_data(key)
-        if expire_ts is None:
+        decrypted = self.decrypt_data(key)
+        if decrypted is None:
+            logger.warning("授权密钥解密失败")
             return False
 
-        # 验证机器码是否匹配
-        if machine_code not in expire_ts and machine_code != "UNKNOWN":
-            logger.warning("机器码不匹配")
+        # 分离标识符和时间戳
+        parts = decrypted.split("|")
+        if len(parts) < 2:
+            logger.warning("授权密钥格式无效")
             return False
 
-        encrypted = self.encrypt_data(expire_ts)
+        identifier = parts[0]
+
+        # 验证机器码（兼容两种格式）
+        # 格式1：管理端离线生成 → machine_code|expire_ts
+        # 格式2：服务器在线生成 → device_fingerprint[:32]|expire_ts
+        fingerprint = self.get_device_fingerprint()
+        if machine_code not in identifier and identifier not in fingerprint:
+            logger.warning(f"机器码不匹配: ident={identifier[:20]}... mc={machine_code}")
+            return False
+
+        encrypted = self.encrypt_data(decrypted)
         if not encrypted:
             return False
 
