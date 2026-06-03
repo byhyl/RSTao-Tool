@@ -5,10 +5,10 @@ from pathlib import Path
 BASE_DIR = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # ====================== 软件基本信息 ======================
-APP_NAME = "图像处理集成系统"
+APP_NAME = "RSTao-Tool"
 APP_VERSION = "1.0"
-APP_AUTHOR = "神秘赵先生"
-APP_COPYRIGHT = f"© 2026 {APP_AUTHOR} 保留所有权利"
+APP_AUTHOR = "RSTao"
+APP_COPYRIGHT = "© 2026 RSTao 保留所有权利"
 
 # ====================== 路径配置 ======================
 ICON_PATH = BASE_DIR / "favicon.ico"

@@ -636,6 +636,7 @@ class VectorTab(ctk.CTkFrame):
                 self.base_image = img
                 self.base_image_extent = [0, w, 0, h]
             except Exception:
+                logger.debug("忽略非关键错误")
                 pass
 
         # 加载矢量图层

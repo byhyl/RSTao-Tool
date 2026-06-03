@@ -7,40 +7,40 @@ dist/
 build/
 *.egg
 
-# 环境
+# 鐜
 venv/
 .env
 
-# 授权/安全敏感文件
+# 鎺堟潈/瀹夊叏鏁忔劅鏂囦欢
 .license.dat
 .salt.dat
 *.log
 auth.log
 rstao_tool.log
 
-# 数据库
+# 鏁版嵁搴?
 server/activation.db
 
 # IDE
 .vscode/settings.json
 .idea/
 
-# 临时文件
+# 涓存椂鏂囦欢
 *.tmp
 *.temp
-# 打包产物
+# 鎵撳寘浜х墿
 *.exe
 dist/
 build/
-# 管理员配置（含令牌，切勿提交）
+# 绠＄悊鍛橀厤缃紙鍚护鐗岋紝鍒囧嬁鎻愪氦锛?
 .admin_config.json
 
-# 管理端文件（不随客户端分发）
+# 绠＄悊绔枃浠讹紙涓嶉殢瀹㈡埛绔垎鍙戯級
 admin_tool.py
 server/
 key_generator.py
 
-# 管理端文件（不随客户端分发）
+# 绠＄悊绔枃浠讹紙涓嶉殢瀹㈡埛绔垎鍙戯級
 admin_tool.py
 server/
 key_generator.py
@@ -50,3 +50,4 @@ temp/
 .pytest_cache/
 
 _admin_repo/
+installer/*.exe

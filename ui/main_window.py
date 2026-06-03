@@ -25,6 +25,7 @@ from .theme import (
     init_theme,
 )
 from .vector_tab import VectorTab
+from .settings_tab import SettingsTab
 
 
 # ====================== 配置常量（集中管理） ======================
@@ -182,7 +183,7 @@ class WelcomePage(ctk.CTkFrame):
 
         sub_label = ctk.CTkLabel(
             self,
-            text="专业遥感图像处理与分析工具",
+            text="专业遥感RSTao-Tool与分析工具",
             font=FONT_NORMAL,
             text_color=THEME["text_secondary"],
         )
@@ -465,6 +466,7 @@ class MainWindow(ctk.CTk):
             self.match_tab.pack(fill="both", expand=True)
 
             self.vector_tab = VectorTab(self.notebook.add("矢量编辑"), self.status_vars)
+            self.settings_tab = SettingsTab(self.notebook.add("设置"))
             self.vector_tab.pack(fill="both", expand=True)
         except Exception as e:
             logger.error("初始化标签页失败", exc_info=True)
@@ -642,7 +644,7 @@ class MainWindow(ctk.CTk):
         help_text = """
 RSTao Remote Sensing Studio
 ============================
-专业遥感图像处理与分析工具
+专业遥感RSTao-Tool与分析工具
 
 【功能模块】
 1. 特征检测：Harris、Moravec、Forstner、SUSAN角点检测

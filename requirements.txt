@@ -1,4 +1,4 @@
-﻿# RSTao-Tool 依赖
+# RSTao-Tool 依赖
 # 核心
 customtkinter>=5.2.0
 opencv-python>=4.8.0
@@ -21,4 +21,4 @@ tkcalendar>=1.6.1
 
 # 服务端（可选）
 # fastapi>=0.104.0
-# uvicorn>=0.24.0
+# uvicorn>=0.24.0tifffile>=2024.0.0

@@ -192,6 +192,7 @@ class FeatureTab(ctk.CTkFrame):
             try:
                 var.set(float(entry.get()))
             except Exception:
+                logger.debug("忽略非关键错误")
                 pass
 
         entry.bind("<Return>", update_var)
