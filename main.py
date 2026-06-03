@@ -1,24 +1,25 @@
 ﻿import hashlib
 import json
-import uuid
 import sys
 import time
-import urllib.request
 import urllib.error
+import urllib.request
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Tuple, Optional, Dict
+from tkinter import messagebox
+from typing import Dict, Optional, Tuple
 
 import customtkinter as ctk
 import wmi
-from tkinter import messagebox
+
+from common.crypto import aes_gcm_decrypt, aes_gcm_encrypt, generate_machine_code_hash
+from common.logger import logger
 
 # 本地模块导入
 from ui import MainWindow
-from common.crypto import aes_gcm_encrypt, aes_gcm_decrypt, generate_machine_code_hash
-from common.logger import logger
-from common.logger import logger
+
 
 # ====================== 配置常量 ======================
 @dataclass
@@ -33,9 +34,11 @@ class AuthConfig:
     ACTIVATION_SERVER_URL: str = "http://127.0.0.1:18080"
     ACTIVATION_TIMEOUT: int = 10  # 秒
 
+
 # ====================== 授权核心类 ======================
 class AuthManager:
     """授权管理核心类（封装所有授权逻辑）"""
+
     def __init__(self, config: AuthConfig = AuthConfig()):
         self.config = config
         self.license_path = Path(sys.argv[0]).parent / self.config.LICENSE_FILE_NAME
@@ -61,7 +64,9 @@ class AuthManager:
             # 获取硬盘序列号
             try:
                 disk_info = c.Win32_PhysicalMedia()[0]
-                disk_sn = disk_info.SerialNumber.strip() if hasattr(disk_info, "SerialNumber") else ""
+                disk_sn = (
+                    disk_info.SerialNumber.strip() if hasattr(disk_info, "SerialNumber") else ""
+                )
             except Exception:
                 disk_sn = ""
 
@@ -124,6 +129,7 @@ class AuthManager:
             # 隐藏文件
             try:
                 import os
+
                 os.system(f'attrib +h "{self.license_path}"')
             except Exception:
                 pass
@@ -233,9 +239,11 @@ class AuthManager:
             logger.error(f"在线激活异常: {e}", exc_info=True)
             return False, f"激活异常: {str(e)}"
 
+
 # ====================== 激活界面 ======================
 class ActivationUI:
     """激活界面（封装为类）"""
+
     def __init__(self, auth_manager: AuthManager):
         self.auth_manager = auth_manager
         self.config = auth_manager.config
@@ -268,7 +276,7 @@ class ActivationUI:
             width=400,
             state="readonly",
             textvariable=machine_var,
-            font=self.config.FONT_SMALL
+            font=self.config.FONT_SMALL,
         ).pack(pady=2)
 
         # --- 激活方式选择 ---
@@ -277,14 +285,20 @@ class ActivationUI:
         mode_frame = ctk.CTkFrame(self.root, fg_color="transparent")
         mode_frame.pack(pady=2)
         ctk.CTkRadioButton(
-            mode_frame, text="授权密钥激活", variable=self.activate_mode,
-            value="license_key", font=self.config.FONT_SMALL,
-            command=self._on_mode_change
+            mode_frame,
+            text="授权密钥激活",
+            variable=self.activate_mode,
+            value="license_key",
+            font=self.config.FONT_SMALL,
+            command=self._on_mode_change,
         ).pack(side="left", padx=10)
         ctk.CTkRadioButton(
-            mode_frame, text="在线激活码激活", variable=self.activate_mode,
-            value="online_code", font=self.config.FONT_SMALL,
-            command=self._on_mode_change
+            mode_frame,
+            text="在线激活码激活",
+            variable=self.activate_mode,
+            value="online_code",
+            font=self.config.FONT_SMALL,
+            command=self._on_mode_change,
         ).pack(side="left", padx=10)
 
         # --- 输入区域（动态切换）---
@@ -300,7 +314,7 @@ class ActivationUI:
             self.key_frame,
             width=400,
             placeholder_text="粘贴生成的授权密钥",
-            font=self.config.FONT_SMALL
+            font=self.config.FONT_SMALL,
         )
         self.key_entry.pack()
         self.key_frame.pack()
@@ -311,7 +325,7 @@ class ActivationUI:
             self.online_frame,
             width=400,
             placeholder_text="请输入16位在线激活码",
-            font=self.config.FONT_SMALL
+            font=self.config.FONT_SMALL,
         )
         self.online_entry.pack()
         # 默认隐藏在线激活码输入框
@@ -319,10 +333,7 @@ class ActivationUI:
 
         # 状态提示
         self.status_label = ctk.CTkLabel(
-            self.root,
-            text="",
-            text_color="red",
-            font=self.config.FONT_SMALL
+            self.root, text="", text_color="red", font=self.config.FONT_SMALL
         )
         self.status_label.pack(pady=5)
 
@@ -333,7 +344,7 @@ class ActivationUI:
             command=self._on_activate,
             fg_color=self.config.BTN_ACTIVE_COLOR,
             width=200,
-            font=self.config.FONT_MAIN
+            font=self.config.FONT_MAIN,
         ).pack(pady=15)
 
         # 进度提示
@@ -417,6 +428,7 @@ class ActivationUI:
         self.root.mainloop()
         sys.exit()
 
+
 # ====================== 启动函数 ======================
 def start_main():
     """启动主程序"""
@@ -427,6 +439,7 @@ def start_main():
         logger.critical("主程序启动失败", exc_info=True)
         messagebox.showerror("致命错误", f"主程序启动失败：{str(e)}")
         sys.exit(1)
+
 
 def main():
     """程序入口"""
@@ -449,6 +462,7 @@ def main():
         logger.critical("程序初始化失败", exc_info=True)
         messagebox.showerror("致命错误", f"程序初始化失败：{str(e)}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
