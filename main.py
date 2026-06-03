@@ -38,7 +38,7 @@ class AuthConfig:
 # ====================== 授权核心类 ======================
 class AuthManager:
     """授权管理核心类（封装所有授权逻辑）"""
-
+    _ANTI_TAMPER_FILE = Path(__file__).parent / ".rstao_ts"
     def __init__(self, config: AuthConfig = AuthConfig()):
         self.config = config
         self.license_path = Path(sys.argv[0]).parent / self.config.LICENSE_FILE_NAME
@@ -167,7 +167,16 @@ class AuthManager:
         if self.is_expired(decrypted.split("|")[1] if "|" in decrypted else "0"):
             return False, "授权已过期"
 
-        return True, "授权有效"
+        # ??????????????
+        tamper_msg = self._check_clock_tamper()
+        if tamper_msg:
+            return False, tamper_msg
+
+        # ????????
+        self._save_last_valid_time()
+
+        return True, "????"
+
 
     def is_expired(self, expire_str: str) -> bool:
         """验证是否过期"""
@@ -177,6 +186,31 @@ class AuthManager:
             return current_ts > expire_ts
         except ValueError:
             return True
+
+    def _check_clock_tamper(self) -> str:
+        """???????????????????????"""
+        try:
+            now = time.time()
+            if self._ANTI_TAMPER_FILE.exists():
+                saved = float(self._ANTI_TAMPER_FILE.read_text().strip())
+                if now < saved - 86400:
+                    logger.warning(f"??????: now={now} saved={saved}")
+                    return "?????????????????"
+        except Exception:
+            pass
+        return ""
+
+    def _save_last_valid_time(self):
+        """????????????"""
+        try:
+            self._ANTI_TAMPER_FILE.write_text(str(time.time()))
+            try:
+                import os; os.system(chr(97)+chr(116)+chr(116)+chr(114)+chr(105)+chr(98)+chr(32)+chr(43)+chr(104)+chr(32)+chr(34)+str(self._ANTI_TAMPER_FILE)+chr(34))
+            except Exception:
+                pass
+        except Exception:
+            pass
+
 
     def save_license(self, key: str) -> bool:
         """保存授权密钥"""
