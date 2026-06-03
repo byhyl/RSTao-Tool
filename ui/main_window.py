@@ -23,6 +23,8 @@ from .theme import (
     FONT_TITLE,
     PANEL_STYLE,
     THEME,
+    apply_theme,
+    get_current_mode,
     init_theme,
 )
 from .vector_tab import VectorTab
@@ -328,46 +330,126 @@ class MainWindow(ctk.CTk):
             messagebox.showerror("错误", f"界面初始化失败：{str(e)}")
             self.show_welcome()
 
+    # ---- menu bar ----
     def create_menu_bar(self):
-        """创建菜单栏（仿 ArcMap/ENVI 风格）"""
-        self.menubar = tk.Menu(self)
+        """CTk style menu bar with CTkFrame dropdowns"""
+        self._menu_dropdown = None
+        self._menu_buttons = []
 
-        # === 文件菜单 ===
-        file_menu = tk.Menu(self.menubar, tearoff=0)
-        file_menu.add_command(label="新建项目", command=self.new_project, accelerator="Ctrl+N")
-        file_menu.add_command(label="打开项目", command=self.open_project, accelerator="Ctrl+O")
-        file_menu.add_separator()
-        file_menu.add_command(label="保存", command=self.save_project, accelerator="Ctrl+S")
-        file_menu.add_command(label="导出当前结果", command=self.export_current, accelerator="Ctrl+E")
-        file_menu.add_separator()
-        file_menu.add_command(label="退出", command=self.quit)
-        self.menubar.add_cascade(label="文件", menu=file_menu)
+        self._menubar_frame = ctk.CTkFrame(
+            self.main_container, height=36, corner_radius=0, fg_color=THEME["menubar"]
+        )
+        self._menubar_frame.pack(fill="x")
+        self._menubar_frame.pack_propagate(False)
 
-        # === 功能菜单 ===
-        func_menu = tk.Menu(self.menubar, tearoff=0)
-        func_menu.add_command(label="特征检测", command=lambda: self.switch_panel("feature"))
-        func_menu.add_command(label="影像匹配", command=lambda: self.switch_panel("match"))
-        func_menu.add_command(label="矢量编辑", command=lambda: self.switch_panel("vector"))
-        self.menubar.add_cascade(label="功能", menu=func_menu)
+        self._add_menu_button("文件", [
+            ("新建项目  Ctrl+N", self.new_project),
+            ("打开项目  Ctrl+O", self.open_project),
+            ("---", None),
+            ("保存      Ctrl+S", self.save_project),
+            ("导出结果  Ctrl+E", self.export_current),
+            ("---", None),
+            ("退出", self.quit),
+        ])
+        self._add_menu_button("功能", [
+            ("特征检测", lambda: self.switch_panel("feature")),
+            ("影像匹配", lambda: self.switch_panel("match")),
+            ("矢量编辑", lambda: self.switch_panel("vector")),
+        ])
+        self._add_menu_button("设置", [
+            ("偏好设置", lambda: self.switch_panel("settings")),
+        ])
+        self._add_menu_button("帮助", [
+            ("使用帮助", self.show_help),
+            ("关于", self.show_about),
+        ])
 
-        # === 设置菜单 ===
-        settings_menu = tk.Menu(self.menubar, tearoff=0)
-        settings_menu.add_command(label="偏好设置", command=lambda: self.switch_panel("settings"))
-        self.menubar.add_cascade(label="设置", menu=settings_menu)
+        brand = ctk.CTkLabel(
+            self._menubar_frame, text="RSTao-Tool",
+            font=("Microsoft YaHei UI", 11, "bold"), text_color=THEME["accent"]
+        )
+        brand.pack(side="right", padx=12)
 
-        # === 帮助菜单 ===
-        help_menu = tk.Menu(self.menubar, tearoff=0)
-        help_menu.add_command(label="使用帮助", command=self.show_help)
-        help_menu.add_command(label="关于 RSTao-Tool", command=self.show_about)
-        self.menubar.add_cascade(label="帮助", menu=help_menu)
-
-        self.config(menu=self.menubar)
-
-        # 快捷键
         self.bind_all("<Control-n>", lambda e: self.new_project())
         self.bind_all("<Control-o>", lambda e: self.open_project())
         self.bind_all("<Control-s>", lambda e: self.save_project())
         self.bind_all("<Control-e>", lambda e: self.export_current())
+        self.bind_all("<Button-1>", self._on_global_click, add="+")
+
+    def _add_menu_button(self, text, items):
+        btn = ctk.CTkButton(
+            self._menubar_frame, text=text, width=64, height=34,
+            fg_color="transparent", hover_color=THEME["hover"],
+            text_color=THEME["text_primary"],
+            font=FONT_NORMAL, corner_radius=4,
+        )
+        btn.configure(command=lambda i=items, b=btn: self._show_menu_dropdown(i, b))
+        btn.pack(side="left", padx=1)
+        self._menu_buttons.append(btn)
+
+    def _show_menu_dropdown(self, items, parent_btn):
+        self._hide_menu_dropdown()
+        x = parent_btn.winfo_rootx() - self.winfo_rootx()
+        y = parent_btn.winfo_rooty() - self.winfo_rooty() + parent_btn.winfo_height()
+        dropdown = ctk.CTkFrame(
+            self, fg_color=THEME["dropdown"],
+            corner_radius=6, border_width=1, border_color=THEME["border"]
+        )
+        for item_text, item_cmd in items:
+            if item_text == "---":
+                ctk.CTkFrame(dropdown, height=1, fg_color=THEME["border"]).pack(fill="x", padx=8, pady=3)
+            else:
+                label = item_text.split("  ")[0].strip()
+                row_btn = ctk.CTkButton(
+                    dropdown, text="  " + label, anchor="w",
+                    fg_color="transparent", hover_color=THEME["hover"],
+                    text_color=THEME["text_primary"],
+                    font=FONT_NORMAL, corner_radius=0, height=30,
+                    command=lambda c=item_cmd: (self._hide_menu_dropdown(), c() if c else None)
+                )
+                row_btn.pack(fill="x")
+        dropdown.place(x=x, y=y)
+        dropdown.lift()
+        self._menu_dropdown = dropdown
+        self._menu_dropdown_btn = parent_btn
+
+    def _on_global_click(self, event):
+        if self._menu_dropdown and self._menu_dropdown.winfo_exists():
+            widget = event.widget
+            if not str(widget).startswith(str(self._menu_dropdown)):
+                if not (hasattr(self, "_menu_dropdown_btn") and str(widget).startswith(str(self._menu_dropdown_btn))):
+                    self._hide_menu_dropdown()
+
+    def _hide_menu_dropdown(self):
+        if self._menu_dropdown and self._menu_dropdown.winfo_exists():
+            self._menu_dropdown.destroy()
+        self._menu_dropdown = None
+
+    def refresh_theme(self):
+        """Refresh all custom theme widgets when switching dark/light mode"""
+        if hasattr(self, "main_container") and self.main_container.winfo_exists():
+            self.main_container.configure(fg_color=THEME["bg"])
+        if hasattr(self, "_menubar_frame") and self._menubar_frame.winfo_exists():
+            self._menubar_frame.configure(fg_color=THEME["menubar"])
+        for btn in getattr(self, "_menu_buttons", []):
+            if btn.winfo_exists():
+                btn.configure(fg_color="transparent", hover_color=THEME["hover"], text_color=THEME["text_primary"])
+        if hasattr(self, "content_frame") and self.content_frame.winfo_exists():
+            self.content_frame.configure(fg_color=THEME["bg"])
+        if hasattr(self, "statusbar") and self.statusbar.winfo_exists():
+            self.statusbar.configure(fg_color=THEME["statusbar"])
+        for panel in getattr(self, "panels", {}).values():
+            if panel.winfo_exists():
+                try:
+                    panel.configure(fg_color=THEME["bg"])
+                except Exception:
+                    pass
+        if hasattr(self, "settings_tab") and self.settings_tab and self.settings_tab.winfo_exists():
+            try:
+                self.settings_tab.configure(fg_color=THEME["bg"])
+            except Exception:
+                pass
+        self.configure(fg_color=THEME["bg"])
 
     def init_panels(self):
         """初始化功能面板"""
@@ -414,7 +496,7 @@ class MainWindow(ctk.CTk):
             self.main_container,
             height=Config.UI_CONSTANTS["ribbon_height"],
             corner_radius=0,
-            fg_color=THEME["panel"],
+            fg_color=THEME["statusbar"],
         )
         self.ribbon.pack(fill="x", padx=10, pady=(0, 0))
 
@@ -432,7 +514,7 @@ class MainWindow(ctk.CTk):
             self.main_container,
             height=Config.UI_CONSTANTS["statusbar_height"],
             corner_radius=0,
-            fg_color=THEME["panel"],
+            fg_color=THEME["statusbar"],
         )
         self.statusbar.pack(fill="x", padx=10, pady=(0, 10))
 
@@ -619,7 +701,7 @@ class MainWindow(ctk.CTk):
             messagebox.showwarning("提示", "请先创建或打开一个项目")
             return
 
-        cur_tab = self.notebook.get()
+        cur_tab = getattr(self, "_current_panel_name", "feature")
         try:
             if cur_tab == "特征检测" and self.feature_tab:
                 self.feature_tab.save_result()

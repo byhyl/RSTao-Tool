@@ -1,4 +1,4 @@
-"""设置面板"""
+﻿"""设置面板"""
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from pathlib import Path

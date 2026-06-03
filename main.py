@@ -196,7 +196,7 @@ class AuthManager:
 
         return self.write_auth(encrypted)
 
-    def online_activate(self, activation_code: str) -> Tuple[bool, str]:
+    def online_activate(self, activation_code: str, server_url: str = None) -> Tuple[bool, str]:
         """在线激活：向服务端发送激活码+设备指纹进行验证"""
         try:
             payload = {
@@ -207,7 +207,7 @@ class AuthManager:
             }
             data = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(
-                f"{self.config.ACTIVATION_SERVER_URL}/api/activate",
+                f"{server_url or self.config.ACTIVATION_SERVER_URL}/api/activate",
                 data=data,
                 headers={"Content-Type": "application/json"},
                 method="POST",
@@ -321,6 +321,18 @@ class ActivationUI:
 
         # 在线激活码输入（默认隐藏）
         self.online_frame = ctk.CTkFrame(self.input_frame, fg_color="transparent")
+
+        # server address input
+        self.server_url_label = ctk.CTkLabel(self.online_frame, text="Server URL", font=self.config.FONT_SMALL)
+        self.server_url_entry = ctk.CTkEntry(
+            self.online_frame,
+            width=400,
+            placeholder_text="http://10.127.176.226:18080",
+            font=self.config.FONT_SMALL,
+        )
+        self.server_url_entry.insert(0, self.config.ACTIVATION_SERVER_URL)
+        self.server_url_label.pack(pady=(0,2))
+        self.server_url_entry.pack(pady=(0,8))
         self.online_entry = ctk.CTkEntry(
             self.online_frame,
             width=400,
@@ -404,7 +416,8 @@ class ActivationUI:
         self.progress_label.configure(text="正在连接激活服务器...", text_color="#2563eb")
         self.root.update()
 
-        ok, msg = self.auth_manager.online_activate(code)
+        server_url = self.server_url_entry.get().strip() or self.config.ACTIVATION_SERVER_URL
+        ok, msg = self.auth_manager.online_activate(code, server_url)
         if not ok:
             messagebox.showerror("激活失败", msg)
             self.status_label.configure(text=msg, text_color="red")
