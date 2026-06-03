@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 *.pyo
@@ -44,3 +44,9 @@ key_generator.py
 admin_tool.py
 server/
 key_generator.py
+
+logs/
+temp/
+.pytest_cache/
+
+_admin_repo/

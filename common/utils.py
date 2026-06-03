@@ -7,7 +7,6 @@ from .logger import logger
 from .exceptions import AppBaseException
 
 # common/utils.py
-# common/utils.py
 def set_chinese_font():
     """统一设置Matplotlib中文显示"""
     # Windows系统优先使用微软雅黑和黑体
@@ -56,7 +55,7 @@ def put_chinese_text(img, text, position, font_size, color):
     
     try:
         font = ImageFont.truetype("simhei.ttf", font_size)
-    except:
+    except Exception:  # 字体加载降级
         font = ImageFont.load_default()
     
     draw.text(position, text, font=font, fill=color)

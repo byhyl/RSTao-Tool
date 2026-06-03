@@ -12,8 +12,8 @@ APP_COPYRIGHT = f"© 2026 {APP_AUTHOR} 保留所有权利"
 
 # ====================== 路径配置 ======================
 ICON_PATH = BASE_DIR / "favicon.ico"
-LOG_DIR = Path(os.path.expanduser("~")) / ".img_processing_system" / "logs"
-TEMP_DIR = Path(os.path.expanduser("~")) / ".img_processing_system" / "temp"
+LOG_DIR = BASE_DIR / "logs"
+TEMP_DIR = BASE_DIR / "temp"
 
 # 自动创建目录
 LOG_DIR.mkdir(parents=True, exist_ok=True)

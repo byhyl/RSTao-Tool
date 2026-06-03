@@ -21,8 +21,8 @@ class ProjectManager:
                 with open(config_path, "r", encoding="utf-8") as f:
                     config = json.load(f)
                     return config.get("recent_projects", [])
-            except:
-                pass
+            except (json.JSONDecodeError, OSError):
+                pass  # 配置文件损坏时使用空列表
         return []
 
     def _save_recent_projects(self):

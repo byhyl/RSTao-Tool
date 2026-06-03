@@ -1,7 +1,6 @@
 ﻿import hashlib
 import json
 import uuid
-import logging
 import sys
 import time
 import urllib.request
@@ -18,6 +17,7 @@ from tkinter import messagebox
 # 本地模块导入
 from ui import MainWindow
 from common.crypto import aes_gcm_encrypt, aes_gcm_decrypt, generate_machine_code_hash
+from common.logger import logger
 
 # ====================== 配置常量 ======================
 @dataclass
@@ -28,7 +28,6 @@ class AuthConfig:
     FONT_MAIN: tuple = ("Microsoft YaHei", 14)
     FONT_SMALL: tuple = ("Microsoft YaHei", 12)
     BTN_ACTIVE_COLOR: str = "#2563eb"
-    LOG_FILE: Path = Path(__file__).parent / "auth.log"
     # 在线激活服务器地址（可配置）
     ACTIVATION_SERVER_URL: str = "http://127.0.0.1:18080"
     ACTIVATION_TIMEOUT: int = 10  # 秒

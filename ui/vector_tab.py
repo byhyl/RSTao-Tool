@@ -548,7 +548,7 @@ class VectorTab(ctk.CTkFrame):
                 h, w = img.shape[:2]
                 self.base_image = img
                 self.base_image_extent = [0, w, 0, h]
-            except:
+            except Exception:
                 pass
         
         # 加载矢量图层

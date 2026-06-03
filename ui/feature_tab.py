@@ -171,7 +171,7 @@ class FeatureTab(ctk.CTkFrame):
         # 双向绑定
         def update_var(*args):
             try: var.set(float(entry.get()))
-            except: pass
+            except Exception: pass
         entry.bind("<Return>", update_var)
         var.trace_add("write", lambda *a: (entry.delete(0,"end"), entry.insert(0,f"{var.get():.3f}")))
 

@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "RSTao-Tool"
+version = "2.1.0"
+description = "遥感影像处理与矢量编辑集成系统"
+readme = "README.md"
+license = {text = "Proprietary"}
+authors = [
+    {name = "byhyl"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "customtkinter>=5.2.0",
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+    "matplotlib>=3.7.0",
+    "Pillow>=10.0.0",
+    "pycryptodome>=3.19.0",
+    "shapely>=2.0.0",
+    "fiona>=1.9.0",
+    "ezdxf>=1.1.0",
+    "wmi>=1.5.1",
+    "pyperclip>=1.8.0",
+    "tkcalendar>=1.6.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=23.0",
+    "isort>=5.12",
+    "pyinstaller>=5.0",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.pyinstaller]
+name = "RSTao-Tool"
+onefile = false
+windowed = true
+icon = "icon.ico"

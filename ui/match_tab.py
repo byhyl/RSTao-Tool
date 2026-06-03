@@ -239,7 +239,7 @@ class MatchTab(ctk.CTkFrame):
             self.template_listbox.delete(1.0, ctk.END)
             for _,n,_ in self.templates:
                 self.template_listbox.insert(ctk.END, n+"\n")
-        except:
+        except Exception:
             messagebox.showwarning("提示", "请选择要删除的目标")
         self._check_buttons()
         self._update_display()

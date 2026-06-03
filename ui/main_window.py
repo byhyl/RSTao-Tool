@@ -15,11 +15,11 @@ from .vector_tab import VectorTab
 from .theme import init_theme, THEME, FONT_TITLE, FONT_SUBTITLE, FONT_NORMAL, FONT_SMALL, PANEL_STYLE
 from core.project_manager import ProjectManager
 from common.crypto import aes_gcm_decrypt
+from common.logger import logger
 
 # ====================== 配置常量（集中管理） ======================
 class Config:
     LICENSE_FILE = Path(__file__).parent.parent / ".license.dat"
-    LOG_FILE = Path(__file__).parent.parent / "rstao_tool.log"
     ICONS_DIR = Path(__file__).parent.parent / "assets/icons"
     RECENT_PROJECTS_MAX = 10
     UI_CONSTANTS = {
@@ -32,16 +32,6 @@ class Config:
         "min_window_size": (1400, 800)
     }
 
-# ====================== 日志配置（增强版） ======================
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(Config.LOG_FILE, encoding="utf-8"),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger("RSTao-Tool")
 
 # ====================== 授权管理类 ======================
 class LicenseManager:
