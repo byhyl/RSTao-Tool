@@ -5,12 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "RSTao-Tool"
 version = "2.1.0"
-description = "閬ユ劅褰卞儚澶勭悊涓庣煝閲忕紪杈戦泦鎴愮郴缁?
-readme = "README.md"
+description = "遥感影像处理与矢量编辑集成系统"
 license = {text = "Proprietary"}
-authors = [
-    {name = "byhyl"}
-]
+authors = [{name = "byhyl"}]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
