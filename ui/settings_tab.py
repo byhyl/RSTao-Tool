@@ -3,7 +3,7 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from pathlib import Path
 
-from .theme import THEME, FONT_SUBTITLE, FONT_NORMAL, FONT_SMALL, CollapsibleCard
+from .theme import THEME, FONT_SUBTITLE, FONT_NORMAL, FONT_SMALL, PANEL_STYLE
 from common.i18n import t, load_language, current_lang
 
 
@@ -20,63 +20,54 @@ class SettingsTab(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
 
         scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        scroll.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+        scroll.grid(row=0, column=0, sticky="nsew", padx=30, pady=20)
 
-        # 语言设置
-        self.lang_card = CollapsibleCard(scroll, t("settings.language"))
-        self.lang_card.pack(fill="x", pady=5)
-
-        row = ctk.CTkFrame(self.lang_card.content, fg_color="transparent")
-        row.pack(fill="x", padx=10, pady=10)
+        # === 语言 ===
+        ctk.CTkLabel(scroll, text="界面语言 / Language", font=FONT_SUBTITLE).pack(anchor="w", pady=(15, 5))
+        lang_frame = ctk.CTkFrame(scroll, **PANEL_STYLE)
+        lang_frame.pack(fill="x", pady=5)
         self.lang_var = ctk.StringVar(value=current_lang())
-        ctk.CTkRadioButton(row, text="中文", variable=self.lang_var, value="zh",
-                           command=self._on_lang_change, font=FONT_NORMAL).pack(side="left", padx=10)
-        ctk.CTkRadioButton(row, text="English", variable=self.lang_var, value="en",
-                           command=self._on_lang_change, font=FONT_NORMAL).pack(side="left", padx=10)
+        ctk.CTkRadioButton(lang_frame, text="中文", variable=self.lang_var, value="zh",
+                           command=self._on_lang_change, font=FONT_NORMAL).pack(side="left", padx=15, pady=10)
+        ctk.CTkRadioButton(lang_frame, text="English", variable=self.lang_var, value="en",
+                           command=self._on_lang_change, font=FONT_NORMAL).pack(side="left", padx=15, pady=10)
 
-        # 主题设置
-        self.theme_card = CollapsibleCard(scroll, t("settings.theme"))
-        self.theme_card.pack(fill="x", pady=5)
-
-        trow = ctk.CTkFrame(self.theme_card.content, fg_color="transparent")
-        trow.pack(fill="x", padx=10, pady=10)
+        # === 主题 ===
+        ctk.CTkLabel(scroll, text="主题 / Theme", font=FONT_SUBTITLE).pack(anchor="w", pady=(15, 5))
+        theme_frame = ctk.CTkFrame(scroll, **PANEL_STYLE)
+        theme_frame.pack(fill="x", pady=5)
         self.theme_var = ctk.StringVar(value="dark")
-        ctk.CTkRadioButton(trow, text="深色", variable=self.theme_var, value="dark",
-                           command=self._on_theme_change, font=FONT_NORMAL).pack(side="left", padx=10)
-        ctk.CTkRadioButton(trow, text="浅色", variable=self.theme_var, value="light",
-                           command=self._on_theme_change, font=FONT_NORMAL).pack(side="left", padx=10)
+        ctk.CTkRadioButton(theme_frame, text="深色 Dark", variable=self.theme_var, value="dark",
+                           command=self._on_theme_change, font=FONT_NORMAL).pack(side="left", padx=15, pady=10)
+        ctk.CTkRadioButton(theme_frame, text="浅色 Light", variable=self.theme_var, value="light",
+                           command=self._on_theme_change, font=FONT_NORMAL).pack(side="left", padx=15, pady=10)
 
-        # 缓存目录
-        self.cache_card = CollapsibleCard(scroll, t("settings.cache"))
-        self.cache_card.pack(fill="x", pady=5)
-
-        crow = ctk.CTkFrame(self.cache_card.content, fg_color="transparent")
-        crow.pack(fill="x", padx=10, pady=10)
-        self.cache_entry = ctk.CTkEntry(crow, font=FONT_SMALL)
-        self.cache_entry.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        # === 缓存目录 ===
+        ctk.CTkLabel(scroll, text="缓存目录 / Cache", font=FONT_SUBTITLE).pack(anchor="w", pady=(15, 5))
+        cache_frame = ctk.CTkFrame(scroll, **PANEL_STYLE)
+        cache_frame.pack(fill="x", pady=5)
+        self.cache_entry = ctk.CTkEntry(cache_frame, font=FONT_SMALL)
+        self.cache_entry.pack(side="left", fill="x", expand=True, padx=(15, 5), pady=10)
         self.cache_entry.insert(0, str(Path.home() / ".rstao_cache"))
-        ctk.CTkButton(crow, text="浏览", command=self._browse_cache, width=60,
-                      font=FONT_SMALL).pack(side="right")
+        ctk.CTkButton(cache_frame, text="浏览", command=self._browse_cache, width=60,
+                      font=FONT_SMALL).pack(side="right", padx=15, pady=10)
 
-        # 默认参数
-        self.defaults_card = CollapsibleCard(scroll, t("settings.defaults"))
-        self.defaults_card.pack(fill="x", pady=5)
+        # === 默认参数 ===
+        ctk.CTkLabel(scroll, text="默认参数 / Defaults", font=FONT_SUBTITLE).pack(anchor="w", pady=(15, 5))
+        param_frame = ctk.CTkFrame(scroll, **PANEL_STYLE)
+        param_frame.pack(fill="x", pady=5)
 
-        self._add_param_row("Harris k:", "0.04")
-        self._add_param_row("匹配阈值:", "0.80")
-        self._add_param_row("NMS 半径:", "5")
+        for label, val in [("Harris k", "0.04"), ("匹配阈值", "0.80"), ("NMS 半径", "5")]:
+            row = ctk.CTkFrame(param_frame, fg_color="transparent")
+            row.pack(fill="x", padx=15, pady=5)
+            ctk.CTkLabel(row, text=f"{label}:", font=FONT_NORMAL, width=90).pack(side="left")
+            entry = ctk.CTkEntry(row, font=FONT_SMALL, width=80)
+            entry.insert(0, val)
+            entry.pack(side="left")
 
-        ctk.CTkButton(scroll, text=t("settings.reset"), command=self._reset_defaults,
+        ctk.CTkButton(scroll, text="恢复默认设置", command=self._reset_defaults,
                       fg_color="transparent", border_width=1, border_color=THEME["border"],
-                      font=FONT_NORMAL).pack(pady=15)
-
-    def _add_param_row(self, label, default_val):
-        row = ctk.CTkFrame(self.defaults_card.content, fg_color="transparent")
-        row.pack(fill="x", padx=10, pady=3)
-        ctk.CTkLabel(row, text=label, font=FONT_SMALL, width=80).pack(side="left")
-        entry = ctk.CTkEntry(row, font=FONT_SMALL, width=100)
-        entry.insert(0, default_val)
-        entry.pack(side="left")
+                      font=FONT_NORMAL, height=36).pack(pady=20)
 
     def _on_lang_change(self):
         lang = self.lang_var.get()
@@ -95,4 +86,4 @@ class SettingsTab(ctk.CTkFrame):
             self.cache_entry.insert(0, d)
 
     def _reset_defaults(self):
-        messagebox.showinfo(t("settings.reset"), "已恢复默认设置（需重启生效）")
+        messagebox.showinfo("恢复默认", "已恢复默认设置（需重启生效）")
