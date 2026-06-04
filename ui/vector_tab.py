@@ -1,13 +1,10 @@
-# ui/vector_tab.py
+﻿# ui/vector_tab.py
 import os
 from tkinter import filedialog, messagebox, ttk
 
 import customtkinter as ctk
 import cv2
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-from matplotlib.patches import Polygon
 
 from common.config import DEFAULT_VECTOR_COLOR, SELECTED_COLOR
 from common.logger import logger
@@ -26,6 +23,7 @@ from core import (
 )
 from data import read_shp, save_dwg, save_shp
 
+from .raster_viewer import RasterViewer
 from .theme import FONT_NORMAL, FONT_SMALL, FONT_SUBTITLE, PANEL_STYLE, THEME, CollapsibleCard
 
 set_chinese_font()
@@ -193,24 +191,17 @@ class VectorTab(ctk.CTkFrame):
         )
         self.tip_label.pack(pady=10, padx=5)
 
-        # ========== 右侧画布 ==========
-        self.fig, self.ax = plt.subplots(figsize=(12, 8), dpi=100, facecolor=THEME["panel"])
-        self.ax.set_aspect("equal")
-        self.ax.axis("off")
-        self.ax.set_facecolor(THEME["panel"])
+        # ========== RasterViewer ==========
+        self.viewer = RasterViewer(
+            self.canvas_frame,
+            on_coord_change=self._on_viewer_coord,
+            on_mouse_down=self.on_mouse_down,
+            on_mouse_up=self.on_mouse_up,
+            on_mouse_move=self.on_mouse_move,
+            on_dblclick=self.on_click,
+        )
+        self.viewer.pack(fill="both", expand=True, padx=5, pady=5)
 
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.canvas_frame)
-        self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=5, pady=5)
-
-        self.mpl_toolbar = NavigationToolbar2Tk(self.canvas, self.canvas_frame)
-        self.mpl_toolbar.config(background=THEME["panel"])
-        self.mpl_toolbar.update()
-
-        # 绑定鼠标事件
-        self.canvas.mpl_connect("button_press_event", self.on_mouse_down)
-        self.canvas.mpl_connect("motion_notify_event", self.on_mouse_move)
-        self.canvas.mpl_connect("button_release_event", self.on_mouse_up)
-        self.canvas.mpl_connect("button_press_event", self.on_click)
 
     # ========== 图层管理功能 ==========
     def refresh_layer_tree(self):
@@ -283,7 +274,8 @@ class VectorTab(ctk.CTkFrame):
         for a in self.temp_artists:
             a.remove()
         self.temp_artists = []
-        self.canvas.draw()
+        if hasattr(self, "viewer"):
+            self.viewer.render()
 
     def _reset_selection(self):
         """重置所有选中状态（关键修复）"""
@@ -348,49 +340,63 @@ class VectorTab(ctk.CTkFrame):
         self.status_vars["image_size"].set(f"底图: {w}×{h}")
         messagebox.showinfo("成功", "影像底图导入完成")
 
+    def _on_viewer_coord(self, text):
+        if text:
+            self.status_vars["coords"].set(text)
+        else:
+            self.status_vars["coords"].set("")
+
     def redraw(self):
-        self.ax.clear()
-        self.ax.set_aspect("equal")
-        self.ax.axis("off")
-        self.ax.set_facecolor(THEME["panel"])
+        self.viewer.clear_overlays()
 
-        # 绘制底图
-        if self.base_image is not None and self.base_image_extent is not None:
-            self.ax.imshow(self.base_image, extent=self.base_image_extent, aspect="auto", alpha=0.8)
+        # base image
+        if self.base_image is not None:
+            self.viewer.load(image_array=self.base_image)
 
-        # 绘制矢量图层
+        # vector layers
         for layer in self.layers:
             if not layer["visible"]:
                 continue
-            c = layer["color"]
+            clr = layer["color"]
             for f in layer["features"]:
                 g = f["geometry"]
                 if g["type"] == "Point":
                     x, y = g["coordinates"]
-                    self.ax.plot(x, y, "o", color=c, ms=6)
+                    self.viewer.add_point(x, y, color=clr, radius=6)
                 elif g["type"] == "LineString":
-                    coords = np.array(g["coordinates"])
-                    self.ax.plot(coords[:, 0], coords[:, 1], color=c, lw=2)
+                    self.viewer.add_polygon(g["coordinates"], color=clr, width=2)
                 elif g["type"] == "Polygon":
-                    coords = np.array(g["coordinates"][0])
-                    self.ax.add_patch(Polygon(coords, fc=c, alpha=0.4, ec="black"))
+                    self.viewer.add_polygon(
+                        g["coordinates"][0], color=clr, fill=clr, width=2
+                    )
 
-        # 高亮选中要素
+        # selected feature
         if self.selected_feature:
             g = self.selected_feature["geometry"]
             if g["type"] == "Point":
-                self.ax.plot(g["coordinates"][0], g["coordinates"][1], "ro", ms=10)
+                x, y = g["coordinates"]
+                self.viewer.add_point(x, y, color="red", radius=8, label="Selected")
             elif g["type"] == "LineString":
-                self.ax.plot(
-                    np.array(g["coordinates"])[:, 0], np.array(g["coordinates"])[:, 1], "r", lw=3
+                self.viewer.add_polygon(
+                    g["coordinates"], color="red", width=3
                 )
             elif g["type"] == "Polygon":
-                self.ax.add_patch(Polygon(np.array(g["coordinates"][0]), ec="red", fc="none", lw=2))
+                self.viewer.add_polygon(
+                    g["coordinates"][0], color="red", width=2
+                )
 
-        self.canvas.draw()
+        # temp drawing points
+        if self.drawing_points:
+            for px, py in self.drawing_points:
+                self.viewer.add_point(px, py, color="red", radius=5)
+            if len(self.drawing_points) > 1:
+                self.viewer.add_polygon(
+                    self.drawing_points, color="red", width=1
+                )
+
+        self.viewer.render()
         self.refresh_prop()
 
-    # ========== 属性表功能 ==========
     def refresh_prop(self):
         for i in self.prop_tree.get_children():
             self.prop_tree.delete(i)
@@ -478,31 +484,22 @@ class VectorTab(ctk.CTkFrame):
         messagebox.showinfo("成功", f"导出{fmt}完成")
 
     # ========== 鼠标事件 ==========
-    def on_mouse_down(self, e):
-        if e.inaxes != self.ax:
-            return
-        x, y = e.xdata, e.ydata
-        if e.button == 3:
-            self.drawing_points = []
-            self.clear_temp()
-            return
+    def on_mouse_down(self, px, py, event):
         if self.edit_mode == "select":
-            self._select(x, y)
+            self._select(px, py)
         elif self.edit_mode == "move":
-            self.move_start = (x, y)
+            self.move_start = (px, py)
         elif self.edit_mode == "draw_point":
-            self._add_point(x, y)
+            self._add_point(px, py)
         elif self.edit_mode in ["draw_line", "draw_polygon"]:
-            self.drawing_points.append((x, y))
+            self.drawing_points.append((px, py))
             self._update_temp()
 
-    def on_mouse_move(self, e):
-        # 关键修复：添加严格的存在性检查
+    def on_mouse_move(self, px, py, event):
         if not (
             self.edit_mode == "move"
             and self.selected_feature
             and self.move_start
-            and e.inaxes
             and self.selected_layer_idx is not None
             and self.selected_feature_idx is not None
             and 0 <= self.selected_layer_idx < len(self.layers)
@@ -512,24 +509,22 @@ class VectorTab(ctk.CTkFrame):
         ):
             return
 
-        dx, dy = e.xdata - self.move_start[0], e.ydata - self.move_start[1]
+        dx, dy = px - self.move_start[0], py - self.move_start[1]
         self.selected_feature = move_feature(self.selected_feature, dx, dy)
         self.layers[self.selected_layer_idx]["features"][
             self.selected_feature_idx
         ] = self.selected_feature
-        self.move_start = (e.xdata, e.ydata)
+        self.move_start = (px, py)
         self.redraw()
-
-    def on_mouse_up(self, e):
+    def on_mouse_up(self, px, py, event):
         if self.edit_mode == "move":
             self.move_start = None
 
-    def on_click(self, e):
-        if e.dblclick and e.inaxes:
-            if self.edit_mode == "draw_line" and len(self.drawing_points) >= 2:
-                self._finish_line()
-            elif self.edit_mode == "draw_polygon" and len(self.drawing_points) >= 3:
-                self._finish_poly()
+    def on_click(self, px, py):
+        if self.edit_mode == "draw_line" and len(self.drawing_points) >= 2:
+            self._finish_line()
+        elif self.edit_mode == "draw_polygon" and len(self.drawing_points) >= 3:
+            self._finish_poly()
 
     def _select(self, x, y):
         self.selected_layer_idx, self.selected_feature_idx, self.selected_feature = select_feature(
@@ -552,18 +547,7 @@ class VectorTab(ctk.CTkFrame):
         self.status_vars["features"].set(f"总要素: {sum(len(l['features']) for l in self.layers)}")
 
     def _update_temp(self):
-        self.clear_temp()
-        for px, py in self.drawing_points:
-            (p,) = self.ax.plot(px, py, "ro", ms=5)
-            self.temp_artists.append(p)
-        if len(self.drawing_points) > 1:
-            (l,) = self.ax.plot(
-                np.array(self.drawing_points)[:, 0], np.array(self.drawing_points)[:, 1], "r-"
-            )
-            self.temp_artists.append(l)
-        self.canvas.draw()
-
-    def _finish_line(self):
+        self.redraw()
         if not self.layers:
             self.layers.append(create_new_layer("线图层", "LineString"))
             self.layers[0]["color"] = DEFAULT_VECTOR_COLOR

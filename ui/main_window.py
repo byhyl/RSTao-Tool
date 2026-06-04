@@ -29,6 +29,10 @@ from .theme import (
 )
 from .vector_tab import VectorTab
 from .settings_tab import SettingsTab
+from .batch_dialog import BatchDialog
+from .coordinate_tab import CoordinateTab
+from .detection_tab import DetectionTab
+from .plugin_dialog import PluginDialog
 
 
 # ====================== 配置常量（集中管理） ======================
@@ -169,90 +173,60 @@ def load_icon(icon_name: str, size: tuple[int, int] = (24, 24)) -> Optional[ctk.
 
 
 class WelcomePage(ctk.CTkFrame):
-    def __init__(
-        self,
-        parent: ctk.CTkFrame,
-        new_project_callback: Callable,
-        open_project_callback: Callable,
-        open_recent_callback: Callable[[str], None],
-    ):
+    """欢迎页 - Hero 布局"""
+    def __init__(self, parent, new_project_callback, open_project_callback, open_recent_callback):
         super().__init__(parent, fg_color=THEME["bg"])
         self.new_project_callback = new_project_callback
         self.open_project_callback = open_project_callback
         self.open_recent_callback = open_recent_callback
 
-        title_label = ctk.CTkLabel(self, text="RSTao Remote Sensing Studio", font=FONT_TITLE)
-        title_label.pack(pady=(120, 20))
+        hero = ctk.CTkFrame(self, fg_color="transparent")
+        hero.pack(pady=(80, 30))
+        ctk.CTkLabel(hero, text="RSTao-Tool", font=("Microsoft YaHei UI", 42, "bold"),
+                    text_color=THEME["accent"]).pack()
+        ctk.CTkLabel(hero, text="Remote Sensing Tool", font=("Microsoft YaHei UI", 14),
+                    text_color=THEME["text_secondary"]).pack(pady=(4, 20))
+        sep = ctk.CTkFrame(hero, height=1, width=120, fg_color=THEME["border"])
+        sep.pack()
+        ctk.CTkLabel(hero, text="专业遥感影像处理与分析平台", font=("Microsoft YaHei UI", 13),
+                    text_color=THEME["text_muted"]).pack(pady=(16, 0))
 
-        sub_label = ctk.CTkLabel(
-            self,
-            text="专业遥感RSTao-Tool与分析工具",
-            font=FONT_NORMAL,
-            text_color=THEME["text_secondary"],
-        )
-        sub_label.pack(pady=10)
+        actions = ctk.CTkFrame(self, fg_color="transparent")
+        actions.pack(pady=20)
+        bs = {"width": 200, "height": 42, "font": FONT_NORMAL, "corner_radius": 8}
+        ctk.CTkButton(actions, text="+  新建项目", fg_color=THEME["accent"],
+                     hover_color=THEME["accent_hover"], command=self.new_project_callback, **bs).pack(pady=4)
+        ctk.CTkButton(actions, text="打开已有项目", fg_color="transparent", border_width=1,
+                     border_color=THEME["border"], text_color=THEME["text_primary"],
+                     hover_color=THEME["hover"], command=self.open_project_callback, **bs).pack(pady=4)
 
-        btn_frame = ctk.CTkFrame(self, **PANEL_STYLE)
-        btn_frame.pack(pady=50, fill="x", padx=Config.UI_CONSTANTS["welcome_padx"])
-
-        new_icon = load_icon("new", Config.UI_CONSTANTS["btn_icon_size"])
-        ctk.CTkButton(
-            btn_frame,
-            text="新建项目",
-            image=new_icon,
-            compound="left",
-            font=FONT_NORMAL,
-            command=self.new_project_callback,
-        ).pack(fill="x", padx=20, pady=5)
-
-        open_icon = load_icon("open", Config.UI_CONSTANTS["btn_icon_size"])
-        ctk.CTkButton(
-            btn_frame,
-            text="打开项目",
-            image=open_icon,
-            compound="left",
-            font=FONT_NORMAL,
-            command=self.open_project_callback,
-        ).pack(fill="x", padx=20, pady=5)
-
-        sample_icon = load_icon("sample", Config.UI_CONSTANTS["btn_icon_size"])
-        ctk.CTkButton(
-            btn_frame, text="加载示例数据", image=sample_icon, compound="left", font=FONT_NORMAL
-        ).pack(fill="x", padx=20, pady=5)
-
-        recent_label = ctk.CTkLabel(self, text="最近打开的项目", font=FONT_SUBTITLE)
-        recent_label.pack(pady=(40, 10), anchor="w", padx=Config.UI_CONSTANTS["welcome_padx"])
-
-        self.recent_frame = ctk.CTkFrame(self, **PANEL_STYLE)
-        self.recent_frame.pack(fill="x", padx=Config.UI_CONSTANTS["welcome_padx"])
-
+        ctk.CTkLabel(self, text="最近打开", font=("Microsoft YaHei UI", 11, "bold"),
+                    text_color=THEME["text_muted"]).pack(pady=(50, 8))
+        self.recent_frame = ctk.CTkFrame(self, fg_color="transparent", corner_radius=10,
+                                         border_width=1, border_color=THEME["border"])
+        self.recent_frame.pack(fill="x", padx=360)
         self.update_recent_list([])
 
-    def update_recent_list(self, recent_projects: List[str]):
+    def update_recent_list(self, recent_projects):
         for widget in self.recent_frame.winfo_children():
             widget.destroy()
-
-        display_projects = recent_projects[: Config.RECENT_PROJECTS_MAX]
-
-        if not display_projects:
-            ctk.CTkLabel(
-                self.recent_frame, text="暂无最近项目", text_color=THEME["text_secondary"]
-            ).pack(pady=20)
+        display = recent_projects[:Config.RECENT_PROJECTS_MAX]
+        if not display:
+            ctk.CTkLabel(self.recent_frame, text="暂无最近项目", font=FONT_SMALL,
+                        text_color=THEME["text_muted"]).pack(pady=16)
             return
-
-        for path in display_projects:
-            path_obj = Path(path)
-            if path_obj.exists():
-                name = path_obj.stem[:20] + "..." if len(path_obj.stem) > 20 else path_obj.stem
-                # 已删除tooltip=path
-                btn = ctk.CTkButton(
-                    self.recent_frame,
-                    text=name,
-                    fg_color="transparent",
-                    hover_color=THEME["border"],
-                    command=lambda p=path: self.open_recent_callback(p),
-                )
-                btn.pack(fill="x", padx=10, pady=2)
+        for path in display:
+            p = Path(path)
+            if p.exists():
+                name = p.stem[:36] + "..." if len(p.stem) > 36 else p.stem
+                row = ctk.CTkFrame(self.recent_frame, fg_color="transparent")
+                row.pack(fill="x", padx=8, pady=2)
+                ctk.CTkLabel(row, text=name, font=FONT_SMALL,
+                            text_color=THEME["text_secondary"]).pack(side="left", padx=6)
+                ctk.CTkButton(row, text="打开", width=50, height=24, font=("Microsoft YaHei UI", 10),
+                             fg_color="transparent", hover_color=THEME["hover"],
+                             text_color=THEME["accent"],
+                             command=lambda pp=path: self.open_recent_callback(pp)).pack(side="right", padx=6)
 
 
 class MainWindow(ctk.CTk):
@@ -282,7 +256,6 @@ class MainWindow(ctk.CTk):
         self.vector_tab: Optional[VectorTab] = None
 
         self.project_name_label: Optional[ctk.CTkLabel] = None
-        # notebook replaced by menu bar
 
         self.main_container = ctk.CTkFrame(self, fg_color=THEME["bg"])
         self.main_container.pack(fill="both", expand=True)
@@ -307,23 +280,16 @@ class MainWindow(ctk.CTk):
 
     def show_main_interface(self):
         self._clear_main_container()
-
         try:
             self.create_menu_bar()
-            self.create_ribbon()
-
-            # 内容容器（替代原来的标签页）
             self.content_frame = ctk.CTkFrame(self.main_container, fg_color=THEME["bg"])
-            self.content_frame.pack(fill="both", expand=True, padx=10, pady=(0, 0))
-
+            self.content_frame.pack(fill="both", expand=True)
             self.create_statusbar()
             self.init_panels()
-
             if self.project_manager.current_project:
                 project_name = self.project_manager.current_project.get("project_name", "未知项目")
-                self.project_name_label.configure(text=f"项目: {project_name}")
+                self.project_name_label.configure(text=project_name)
                 self.restore_project_state()
-
             logger.info("主工作界面初始化完成")
         except Exception as e:
             logger.error("初始化主界面失败", exc_info=True)
@@ -332,22 +298,23 @@ class MainWindow(ctk.CTk):
 
     # ---- menu bar ----
     def create_menu_bar(self):
-        """CTk style menu bar with CTkFrame dropdowns"""
+        """现代菜单栏"""
         self._menu_dropdown = None
         self._menu_buttons = []
-
-        self._menubar_frame = ctk.CTkFrame(
-            self.main_container, height=36, corner_radius=0, fg_color=THEME["menubar"]
-        )
+        self._menubar_frame = ctk.CTkFrame(self.main_container, height=40, corner_radius=0, fg_color=THEME["menubar"])
         self._menubar_frame.pack(fill="x")
         self._menubar_frame.pack_propagate(False)
 
+        ctk.CTkLabel(self._menubar_frame, text="  RSTao-Tool", font=("Microsoft YaHei UI", 12, "bold"),
+                    text_color=THEME["accent"]).pack(side="left", padx=(8, 16))
+
         self._add_menu_button("文件", [
-            ("新建项目  Ctrl+N", self.new_project),
-            ("打开项目  Ctrl+O", self.open_project),
+            ("新建项目      Ctrl+N", self.new_project),
+            ("打开项目      Ctrl+O", self.open_project),
             ("---", None),
-            ("保存      Ctrl+S", self.save_project),
-            ("导出结果  Ctrl+E", self.export_current),
+            ("保存项目      Ctrl+S", self.save_project),
+            ("导出结果      Ctrl+E", self.export_current),
+            ("导出报告      Ctrl+R", self.export_report),
             ("---", None),
             ("退出", self.quit),
         ])
@@ -355,33 +322,33 @@ class MainWindow(ctk.CTk):
             ("特征检测", lambda: self.switch_panel("feature")),
             ("影像匹配", lambda: self.switch_panel("match")),
             ("矢量编辑", lambda: self.switch_panel("vector")),
+            ("坐标转换", lambda: self.switch_panel("coordinate")),
+            ("目标检测", lambda: self.switch_panel("detection")),
+            ("---", None),
+            ("批量处理...", self.open_batch_dialog),
         ])
         self._add_menu_button("设置", [
             ("偏好设置", lambda: self.switch_panel("settings")),
         ])
         self._add_menu_button("帮助", [
-            ("使用帮助", self.show_help),
+            ("使用帮助  F1", self.show_help),
+            ("插件管理...", self.open_plugin_dialog),
             ("关于", self.show_about),
         ])
-
-        brand = ctk.CTkLabel(
-            self._menubar_frame, text="RSTao-Tool",
-            font=("Microsoft YaHei UI", 11, "bold"), text_color=THEME["accent"]
-        )
-        brand.pack(side="right", padx=12)
 
         self.bind_all("<Control-n>", lambda e: self.new_project())
         self.bind_all("<Control-o>", lambda e: self.open_project())
         self.bind_all("<Control-s>", lambda e: self.save_project())
         self.bind_all("<Control-e>", lambda e: self.export_current())
+        self.bind_all("<Control-r>", lambda e: self.export_report())
         self.bind_all("<Button-1>", self._on_global_click, add="+")
 
     def _add_menu_button(self, text, items):
         btn = ctk.CTkButton(
-            self._menubar_frame, text=text, width=64, height=34,
+            self._menubar_frame, text=text, width=64, height=38,
             fg_color="transparent", hover_color=THEME["hover"],
             text_color=THEME["text_primary"],
-            font=FONT_NORMAL, corner_radius=4,
+            font=("Microsoft YaHei UI", 12), corner_radius=6,
         )
         btn.configure(command=lambda i=items, b=btn: self._show_menu_dropdown(i, b))
         btn.pack(side="left", padx=1)
@@ -426,11 +393,17 @@ class MainWindow(ctk.CTk):
         self._menu_dropdown = None
 
     def refresh_theme(self):
-        """Refresh all custom theme widgets when switching dark/light mode"""
+        """刷新所有组件主题"""
         if hasattr(self, "main_container") and self.main_container.winfo_exists():
             self.main_container.configure(fg_color=THEME["bg"])
         if hasattr(self, "_menubar_frame") and self._menubar_frame.winfo_exists():
             self._menubar_frame.configure(fg_color=THEME["menubar"])
+            for child in self._menubar_frame.winfo_children():
+                if isinstance(child, ctk.CTkLabel):
+                    try:
+                        child.configure(text_color=THEME["accent"])
+                    except Exception:
+                        pass
         for btn in getattr(self, "_menu_buttons", []):
             if btn.winfo_exists():
                 btn.configure(fg_color="transparent", hover_color=THEME["hover"], text_color=THEME["text_primary"])
@@ -455,20 +428,18 @@ class MainWindow(ctk.CTk):
         """初始化功能面板"""
         self.panels = {}
         self.current_panel = None
-
         self.panels["feature"] = FeatureTab(self.content_frame, self.status_vars)
         self.panels["match"] = MatchTab(self.content_frame, self.status_vars)
         self.panels["vector"] = VectorTab(self.content_frame, self.status_vars)
+        self.panels["coordinate"] = CoordinateTab(self.content_frame, self.status_vars)
+        self.panels["detection"] = DetectionTab(self.content_frame, self.status_vars)
         self.panels["settings"] = SettingsTab(self.content_frame)
-
-        # 兼容旧代码引用
         self.feature_tab = self.panels["feature"]
         self.match_tab = self.panels["match"]
         self.vector_tab = self.panels["vector"]
+        self.coordinate_tab = self.panels["coordinate"]
+        self.detection_tab = self.panels["detection"]
         self.settings_tab = self.panels["settings"]
-
-        # 默认显示第一个
-        self.switch_panel("feature")
 
     def switch_panel(self, name):
         """切换显示的功能面板"""
@@ -490,60 +461,23 @@ class MainWindow(ctk.CTk):
                 return self.save_project()
         return True
 
-    def create_ribbon(self):
-        """工具栏：功能模块快速切换"""
-        self.ribbon = ctk.CTkFrame(
-            self.main_container,
-            height=Config.UI_CONSTANTS["ribbon_height"],
-            corner_radius=0,
-            fg_color=THEME["statusbar"],
-        )
-        self.ribbon.pack(fill="x", padx=10, pady=(0, 0))
-
-        mod_frame = ctk.CTkFrame(self.ribbon, fg_color="transparent")
-        mod_frame.pack(side="left", padx=10, pady=8)
-
-        for name, label in [("feature", "特征检测"), ("match", "影像匹配"), ("vector", "矢量编辑")]:
-            ctk.CTkButton(
-                mod_frame, text=label, width=90, height=32,
-                font=FONT_SMALL, command=lambda n=name: self.switch_panel(n)
-            ).pack(side="left", padx=2)
 
     def create_statusbar(self):
-        self.statusbar = ctk.CTkFrame(
-            self.main_container,
-            height=Config.UI_CONSTANTS["statusbar_height"],
-            corner_radius=0,
-            fg_color=THEME["statusbar"],
-        )
-        self.statusbar.pack(fill="x", padx=10, pady=(0, 10))
-
-        self.project_name_label = ctk.CTkLabel(self.statusbar, text="未打开项目", font=FONT_SMALL)
-        self.project_name_label.pack(side="left", padx=10)
-        self._add_status_separator()
-
-        ctk.CTkLabel(self.statusbar, text="就绪", font=FONT_SMALL).pack(side="left", padx=10)
-        self._add_status_separator()
-
-        status_items = [
-            self.status_vars["image_size"],
-            self.status_vars["algorithm"],
-            self.status_vars["features"],
-            self.status_vars["zoom"],
-        ]
-
-        for var in status_items:
-            ctk.CTkLabel(self.statusbar, textvariable=var, font=FONT_SMALL).pack(
-                side="left", padx=10
-            )
-            self._add_status_separator()
+        self.statusbar = ctk.CTkFrame(self.main_container, height=26, corner_radius=0, fg_color=THEME["statusbar"])
+        self.statusbar.pack(fill="x", side="bottom")
+        self.project_name_label = ctk.CTkLabel(self.statusbar, text="未打开项目",
+                                              font=("Microsoft YaHei UI", 10), text_color=THEME["text_secondary"])
+        self.project_name_label.pack(side="left", padx=12)
+        for vn in ["zoom", "features", "algorithm", "image_size"]:
+            ctk.CTkLabel(self.statusbar, textvariable=self.status_vars[vn],
+                        font=("Microsoft YaHei UI", 10), text_color=THEME["text_muted"]).pack(side="right", padx=10)
 
     def _add_status_separator(self):
-        ctk.CTkLabel(
-            self.statusbar, text="|", font=FONT_SMALL, text_color=THEME["text_secondary"]
-        ).pack(side="left")
+        pass
 
-# init_tabs replaced by init_panels
+    def _add_status_separator(self):
+        pass
+
 
     def new_project(self):
         if not self._prompt_save_project():
@@ -733,6 +667,68 @@ RSTao Remote Sensing Studio
 © 2026 RSTao Studio 版权所有
         """
         messagebox.showinfo("软件帮助", help_text.strip())
+
+    def open_plugin_dialog(self):
+        """打开插件管理对话框"""
+        PluginDialog(self)
+
+    def export_report(self):
+        """导出匹配精度报告"""
+        from tkinter import filedialog as fd
+        from core.report_generator import ReportGenerator, MatchStats, FeatureStats
+        path = fd.asksaveasfilename(
+            defaultextension=".html",
+            filetypes=[("HTML 报告", "*.html")],
+            title="导出精度报告"
+        )
+        if not path:
+            return
+        info = {}
+        if self.project_manager.current_project:
+            info["项目名称"] = self.project_manager.current_project.get("project_name", "")
+        if hasattr(self, "match_tab") and self.match_tab and hasattr(self.match_tab, "correlation_map") and self.match_tab.correlation_map is not None:
+            stats = MatchStats()
+            cmap = self.match_tab.correlation_map
+            stats.scores = cmap.flatten().tolist()[:5000]
+            stats.total_pairs = len(stats.scores)
+            stats.successful_pairs = stats.total_pairs
+            stats.compute()
+            rg = ReportGenerator()
+            rg.generate_match_report("RSTao-Tool 匹配精度报告", stats, info, path)
+        else:
+            stats = FeatureStats()
+            stats.compute()
+            rg = ReportGenerator()
+            rg.generate_feature_report("RSTao-Tool 分析报告", stats, info, path)
+        messagebox.showinfo("成功", f"报告已导出至:\n{path}")
+
+    def open_batch_dialog(self):
+        BatchDialog(self)
+
+    def open_plugin_dialog(self):
+        PluginDialog(self)
+
+    def export_report(self):
+        from tkinter import filedialog as fd
+        from core.report_generator import ReportGenerator, MatchStats, FeatureStats
+        path = fd.asksaveasfilename(defaultextension=".html", filetypes=[("HTML 报告", "*.html")], title="导出精度报告")
+        if not path:
+            return
+        info = {}
+        if self.project_manager.current_project:
+            info["项目名称"] = self.project_manager.current_project.get("project_name", "")
+        if hasattr(self, "match_tab") and self.match_tab and hasattr(self.match_tab, "correlation_map") and self.match_tab.correlation_map is not None:
+            stats = MatchStats()
+            stats.scores = self.match_tab.correlation_map.flatten().tolist()[:5000]
+            stats.total_pairs = len(stats.scores)
+            stats.successful_pairs = stats.total_pairs
+            stats.compute()
+            ReportGenerator().generate_match_report("RSTao-Tool 匹配精度报告", stats, info, path)
+        else:
+            stats = FeatureStats()
+            stats.compute()
+            ReportGenerator().generate_feature_report("RSTao-Tool 分析报告", stats, info, path)
+        messagebox.showinfo("成功", f"报告已导出至:\n{path}")
 
     def show_about(self):
         lic = LicenseManager.get_license_info()

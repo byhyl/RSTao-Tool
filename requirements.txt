@@ -1,4 +1,6 @@
-# RSTao-Tool 依赖
+﻿# RSTao-Tool 依赖
+# ========================
+
 # 核心
 customtkinter>=5.2.0
 opencv-python>=4.8.0
@@ -12,13 +14,19 @@ shapely>=2.0.0
 fiona>=1.9.0
 ezdxf>=1.1.0
 
-# 授权（Windows）
+# 坐标系统
+pyproj>=3.6.0
+
+# 深度学习 (可选)
+onnxruntime>=1.16.0
+
+# 授权 (Windows)
 wmi>=1.5.1
 pyperclip>=1.8.0
 
-# UI 增强
-tkcalendar>=1.6.1
-
-# 服务端（可选）
-# fastapi>=0.104.0
-# uvicorn>=0.24.0tifffile>=2024.0.0
+# 开发
+pytest>=7.4.0
+pytest-cov>=4.1.0
+black>=23.0
+isort>=5.12.0
+pyinstaller>=6.0.0

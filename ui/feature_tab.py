@@ -10,6 +10,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 
 from core.feature_detection import FeatureDetection
 
+from .raster_viewer import RasterViewer
 from .theme import FONT_NORMAL, FONT_SMALL, FONT_SUBTITLE, PANEL_STYLE, THEME, CollapsibleCard
 
 
@@ -154,26 +155,34 @@ class FeatureTab(ctk.CTkFrame):
         self.switch_method()
 
     def build_display(self):
-        # 双窗口布局：原图 + 结果图
-        self.fig = plt.figure(figsize=(12, 8), dpi=100, facecolor=THEME["panel"])
-        gs = self.fig.add_gridspec(1, 2, wspace=0.05)
+        """双窗口布局：原图 + 结果图（RasterViewer + 坐标栏）"""
+        # 坐标状态栏（顶部）
+        self.coord_var = ctk.StringVar(value="")
+        coord_bar = ctk.CTkFrame(self.display_frame, height=22, fg_color=THEME["statusbar"])
+        coord_bar.pack(fill="x", side="top")
+        ctk.CTkLabel(coord_bar, textvariable=self.coord_var, font=("Consolas", 9),
+                    text_color=THEME["text_secondary"]).pack(side="left", padx=8)
 
-        self.ax_original = self.fig.add_subplot(gs[0, 0])
-        self.ax_result = self.fig.add_subplot(gs[0, 1])
+        # 双 RasterViewer 并排
+        top = ctk.CTkFrame(self.display_frame, fg_color="transparent")
+        top.pack(fill="both", expand=True)
 
-        for ax in [self.ax_original, self.ax_result]:
-            ax.axis("off")
-            ax.set_facecolor(THEME["panel"])
-        self.ax_original.set_title("原始图像", fontsize=11, color=THEME["text_primary"])
-        self.ax_result.set_title("检测结果", fontsize=11, color=THEME["text_primary"])
+        left = ctk.CTkFrame(top, fg_color=THEME["card"])
+        left.pack(side="left", fill="both", expand=True, padx=(0, 1))
+        ctk.CTkLabel(left, text=" 原始图像", font=("Microsoft YaHei UI", 10),
+                    text_color=THEME["text_muted"]).pack(anchor="w", padx=4, pady=1)
+        self.viewer_original = RasterViewer(left)
+        self.viewer_original.pack(fill="both", expand=True)
 
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.display_frame)
-        self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=5, pady=5)
+        right = ctk.CTkFrame(top, fg_color=THEME["card"])
+        right.pack(side="right", fill="both", expand=True, padx=(1, 0))
+        ctk.CTkLabel(right, text=" 检测结果", font=("Microsoft YaHei UI", 10),
+                    text_color=THEME["text_muted"]).pack(anchor="w", padx=4, pady=1)
+        self.viewer_result = RasterViewer(right)
+        self.viewer_result.pack(fill="both", expand=True)
 
-        # 添加导航工具栏
-        self.toolbar = NavigationToolbar2Tk(self.canvas, self.display_frame)
-        self.toolbar.config(background=THEME["panel"])
-        self.toolbar.update()
+        self.viewer_original._on_coord_change = lambda t: self.coord_var.set(t)
+        self.viewer_result._on_coord_change = lambda t: self.coord_var.set(t)
 
     def add_slider_entry(self, parent, text, var, min_v, max_v, step):
         """滑块+输入框组合组件"""
@@ -256,18 +265,22 @@ class FeatureTab(ctk.CTkFrame):
         else:
             self.result_img = img
 
-        # 更新显示
-        self.ax_original.clear()
-        self.ax_result.clear()
-        self.ax_original.imshow(cv2.cvtColor(self.original_img, cv2.COLOR_BGR2RGB))
-        self.ax_result.imshow(cv2.cvtColor(self.result_img, cv2.COLOR_BGR2RGB))
+        # 更新显示（RasterViewer）
+        self.viewer_original.load(image_array=cv2.cvtColor(self.original_img, cv2.COLOR_BGR2RGB))
+        self.viewer_result.load(image_array=cv2.cvtColor(self.result_img, cv2.COLOR_BGR2RGB))
 
-        for ax in [self.ax_original, self.ax_result]:
-            ax.axis("off")
-        self.ax_original.set_title("原始图像", fontsize=11, color=THEME["text_primary"])
-        self.ax_result.set_title("检测结果", fontsize=11, color=THEME["text_primary"])
-
-        self.canvas.draw()
+        # 在结果图上叠加特征点
+        self.viewer_result.clear_overlays()
+        try:
+            kp_ys, kp_xs = np.where(mask > 0)
+            step = max(1, len(kp_ys) // 2000)
+            for i in range(0, len(kp_ys), step):
+                self.viewer_result.add_point(
+                    float(kp_xs[i]), float(kp_ys[i]),
+                    color=THEME["accent"], radius=2
+                )
+        except Exception:
+            pass
 
         # 更新统计信息和状态栏
         self.count_label.configure(text=f"检测到特征点：{cnt}")

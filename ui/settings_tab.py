@@ -1,14 +1,14 @@
-﻿"""设置面板"""
+"""设置面板 - RSTao-Tool"""
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from pathlib import Path
 
-from .theme import THEME, FONT_SUBTITLE, FONT_NORMAL, FONT_SMALL, PANEL_STYLE
+from .theme import (THEME, FONT_SUBTITLE, FONT_NORMAL, FONT_SMALL, PANEL_STYLE,
+                     SECTION_STYLE, apply_theme, get_current_mode)
 from common.i18n import t, load_language, current_lang
 
 
 class SettingsTab(ctk.CTkFrame):
-    """设置标签页"""
 
     def __init__(self, parent):
         super().__init__(parent, fg_color=THEME["bg"])
@@ -20,63 +20,84 @@ class SettingsTab(ctk.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
 
         scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        scroll.grid(row=0, column=0, sticky="nsew", padx=30, pady=20)
+        scroll.grid(row=0, column=0, sticky="nsew", padx=40, pady=20)
 
-        # === 语言 ===
-        ctk.CTkLabel(scroll, text="界面语言 / Language", font=FONT_SUBTITLE).pack(anchor="w", pady=(15, 5))
-        lang_frame = ctk.CTkFrame(scroll, **PANEL_STYLE)
-        lang_frame.pack(fill="x", pady=5)
+        ctk.CTkLabel(scroll, text="偏好设置",
+                    font=("Microsoft YaHei UI", 20, "bold")).pack(anchor="w", pady=(0, 20))
+
+        self._section_title(scroll, "外观")
+        card1 = ctk.CTkFrame(scroll, **SECTION_STYLE)
+        card1.pack(fill="x", pady=(0, 12))
+
+        ctk.CTkLabel(card1, text="主题模式", font=FONT_NORMAL).pack(anchor="w", padx=16, pady=(12, 4))
+        self.theme_var = ctk.StringVar(value=get_current_mode())
+        theme_row = ctk.CTkFrame(card1, fg_color="transparent")
+        theme_row.pack(fill="x", padx=16, pady=(0, 12))
+        ctk.CTkRadioButton(theme_row, text="深色  ", variable=self.theme_var, value="dark",
+                           command=self._on_theme_change, font=FONT_SMALL).pack(side="left")
+        ctk.CTkRadioButton(theme_row, text="浅色", variable=self.theme_var, value="light",
+                           command=self._on_theme_change, font=FONT_SMALL).pack(side="left", padx=20)
+
+        ctk.CTkLabel(card1, text="界面语言", font=FONT_NORMAL).pack(anchor="w", padx=16, pady=(0, 4))
         self.lang_var = ctk.StringVar(value=current_lang())
-        ctk.CTkRadioButton(lang_frame, text="中文", variable=self.lang_var, value="zh",
-                           command=self._on_lang_change, font=FONT_NORMAL).pack(side="left", padx=15, pady=10)
-        ctk.CTkRadioButton(lang_frame, text="English", variable=self.lang_var, value="en",
-                           command=self._on_lang_change, font=FONT_NORMAL).pack(side="left", padx=15, pady=10)
+        lang_row = ctk.CTkFrame(card1, fg_color="transparent")
+        lang_row.pack(fill="x", padx=16, pady=(0, 12))
+        ctk.CTkRadioButton(lang_row, text="中文  ", variable=self.lang_var, value="zh",
+                           command=self._on_lang_change, font=FONT_SMALL).pack(side="left")
+        ctk.CTkRadioButton(lang_row, text="English", variable=self.lang_var, value="en",
+                           command=self._on_lang_change, font=FONT_SMALL).pack(side="left", padx=20)
 
-        # === 主题 ===
-        ctk.CTkLabel(scroll, text="主题 / Theme", font=FONT_SUBTITLE).pack(anchor="w", pady=(15, 5))
-        theme_frame = ctk.CTkFrame(scroll, **PANEL_STYLE)
-        theme_frame.pack(fill="x", pady=5)
-        self.theme_var = ctk.StringVar(value="dark")
-        ctk.CTkRadioButton(theme_frame, text="深色 Dark", variable=self.theme_var, value="dark",
-                           command=self._on_theme_change, font=FONT_NORMAL).pack(side="left", padx=15, pady=10)
-        ctk.CTkRadioButton(theme_frame, text="浅色 Light", variable=self.theme_var, value="light",
-                           command=self._on_theme_change, font=FONT_NORMAL).pack(side="left", padx=15, pady=10)
+        self._section_title(scroll, "存储")
+        card2 = ctk.CTkFrame(scroll, **SECTION_STYLE)
+        card2.pack(fill="x", pady=(0, 12))
 
-        # === 缓存目录 ===
-        ctk.CTkLabel(scroll, text="缓存目录 / Cache", font=FONT_SUBTITLE).pack(anchor="w", pady=(15, 5))
-        cache_frame = ctk.CTkFrame(scroll, **PANEL_STYLE)
-        cache_frame.pack(fill="x", pady=5)
-        self.cache_entry = ctk.CTkEntry(cache_frame, font=FONT_SMALL)
-        self.cache_entry.pack(side="left", fill="x", expand=True, padx=(15, 5), pady=10)
+        ctk.CTkLabel(card2, text="缓存目录", font=FONT_NORMAL).pack(anchor="w", padx=16, pady=(12, 4))
+        cache_row = ctk.CTkFrame(card2, fg_color="transparent")
+        cache_row.pack(fill="x", padx=16, pady=(0, 12))
+        self.cache_entry = ctk.CTkEntry(cache_row, font=FONT_SMALL)
+        self.cache_entry.pack(side="left", fill="x", expand=True)
         self.cache_entry.insert(0, str(Path.home() / ".rstao_cache"))
-        ctk.CTkButton(cache_frame, text="浏览", command=self._browse_cache, width=60,
-                      font=FONT_SMALL).pack(side="right", padx=15, pady=10)
+        ctk.CTkButton(cache_row, text="浏览", command=self._browse_cache,
+                      width=60, font=FONT_SMALL, height=28).pack(side="right", padx=(8, 0))
 
-        # === 默认参数 ===
-        ctk.CTkLabel(scroll, text="默认参数 / Defaults", font=FONT_SUBTITLE).pack(anchor="w", pady=(15, 5))
-        param_frame = ctk.CTkFrame(scroll, **PANEL_STYLE)
-        param_frame.pack(fill="x", pady=5)
+        self._section_title(scroll, "算法默认参数")
+        card3 = ctk.CTkFrame(scroll, **SECTION_STYLE)
+        card3.pack(fill="x", pady=(0, 12))
 
-        for label, val in [("Harris k", "0.04"), ("匹配阈值", "0.80"), ("NMS 半径", "5")]:
-            row = ctk.CTkFrame(param_frame, fg_color="transparent")
-            row.pack(fill="x", padx=15, pady=5)
-            ctk.CTkLabel(row, text=f"{label}:", font=FONT_NORMAL, width=90).pack(side="left")
-            entry = ctk.CTkEntry(row, font=FONT_SMALL, width=80)
+        defaults = [("Harris k", "0.04"), ("匹配阈值", "0.80"), ("NMS 半径", "5")]
+        for label, val in defaults:
+            row = ctk.CTkFrame(card3, fg_color="transparent")
+            row.pack(fill="x", padx=16, pady=4)
+            ctk.CTkLabel(row, text=label, font=FONT_SMALL, width=80,
+                        text_color=THEME["text_secondary"]).pack(side="left")
+            entry = ctk.CTkEntry(row, font=FONT_SMALL, width=100, height=28)
             entry.insert(0, val)
             entry.pack(side="left")
 
         ctk.CTkButton(scroll, text="恢复默认设置", command=self._reset_defaults,
                       fg_color="transparent", border_width=1, border_color=THEME["border"],
-                      font=FONT_NORMAL, height=36).pack(pady=20)
+                      text_color=THEME["text_secondary"], hover_color=THEME["hover"],
+                      font=FONT_NORMAL, height=36, corner_radius=8).pack(pady=24)
+
+    def _section_title(self, parent, text):
+        ctk.CTkLabel(parent, text=text, font=("Microsoft YaHei UI", 11, "bold"),
+                    text_color=THEME["text_muted"]).pack(anchor="w", pady=(16, 4))
 
     def _on_lang_change(self):
         lang = self.lang_var.get()
         load_language(lang)
-        messagebox.showinfo("", f"语言已切换为 {'中文' if lang == 'zh' else 'English'}，重启后完全生效")
+        lang_name = "中文" if lang == "zh" else "English"
+        messagebox.showinfo("", f"语言已切换为 {lang_name}，重启后完全生效")
 
     def _on_theme_change(self):
         theme = self.theme_var.get()
-        ctk.set_appearance_mode("Dark" if theme == "dark" else "Light")
+        apply_theme(theme)
+        try:
+            master = self.winfo_toplevel()
+            if hasattr(master, "refresh_theme"):
+                master.refresh_theme()
+        except Exception:
+            pass
         messagebox.showinfo("", "主题已切换")
 
     def _browse_cache(self):

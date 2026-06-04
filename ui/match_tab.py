@@ -12,6 +12,7 @@ from matplotlib.figure import Figure
 
 from core import ImageMatchingCore
 
+from .raster_viewer import RasterViewer
 from .theme import FONT_NORMAL, FONT_SMALL, FONT_SUBTITLE, PANEL_STYLE, THEME, CollapsibleCard
 
 plt.rcParams["font.family"] = ["SimHei", "Microsoft YaHei"]
@@ -184,31 +185,59 @@ class MatchTab(ctk.CTkFrame):
         self.match_count_label.pack(anchor="w", pady=2, padx=5)
 
     def build_display(self):
-        # 2x2 图像显示布局
-        self.fig = Figure(figsize=(12, 8), dpi=100, facecolor=THEME["panel"])
-        gs = self.fig.add_gridspec(2, 2, wspace=0.1, hspace=0.15)
+        """2x2 布局：3 RasterViewer + 1 matplotlib 热力图"""
+        # 坐标栏
+        self.coord_var = ctk.StringVar(value="")
+        coord_bar = ctk.CTkFrame(self.image_frame, height=22, fg_color=THEME["statusbar"])
+        coord_bar.pack(fill="x", side="top")
+        ctk.CTkLabel(coord_bar, textvariable=self.coord_var, font=("Consolas", 9),
+                    text_color=THEME["text_secondary"]).pack(side="left", padx=8)
 
-        self.ax1 = self.fig.add_subplot(gs[0, 0])
-        self.ax2 = self.fig.add_subplot(gs[0, 1])
-        self.ax3 = self.fig.add_subplot(gs[1, 0])
-        self.ax4 = self.fig.add_subplot(gs[1, 1])
+        grid = ctk.CTkFrame(self.image_frame, fg_color="transparent")
+        grid.pack(fill="both", expand=True)
+        for i in range(2):
+            grid.grid_rowconfigure(i, weight=1)
+            grid.grid_columnconfigure(i, weight=1)
 
-        for ax in [self.ax1, self.ax2, self.ax3, self.ax4]:
-            ax.axis("off")
-            ax.set_facecolor(THEME["panel"])
-        self.ax1.set_title("目标窗口预览", fontsize=10, color=THEME["text_primary"])
-        self.ax2.set_title("搜索区域", fontsize=10, color=THEME["text_primary"])
-        self.ax3.set_title("匹配结果", fontsize=10, color=THEME["text_primary"])
-        self.ax4.set_title("相关系数热力图", fontsize=10, color=THEME["text_primary"])
+        # 左上：模板
+        f1 = ctk.CTkFrame(grid, fg_color=THEME["card"])
+        f1.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+        ctk.CTkLabel(f1, text=" 模板", font=("Microsoft YaHei UI", 10),
+                    text_color=THEME["text_muted"]).pack(anchor="w", padx=4, pady=1)
+        self.viewer_template = RasterViewer(f1)
+        self.viewer_template.pack(fill="both", expand=True)
 
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.image_frame)
-        self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=5, pady=5)
+        # 右上：搜索区
+        f2 = ctk.CTkFrame(grid, fg_color=THEME["card"])
+        f2.grid(row=0, column=1, sticky="nsew", padx=2, pady=2)
+        ctk.CTkLabel(f2, text=" 搜索区域", font=("Microsoft YaHei UI", 10),
+                    text_color=THEME["text_muted"]).pack(anchor="w", padx=4, pady=1)
+        self.viewer_search = RasterViewer(f2)
+        self.viewer_search.pack(fill="both", expand=True)
 
-        self.toolbar = NavigationToolbar2Tk(self.canvas, self.image_frame)
-        self.toolbar.config(background=THEME["panel"])
-        self.toolbar.update()
+        # 左下：匹配结果
+        f3 = ctk.CTkFrame(grid, fg_color=THEME["card"])
+        f3.grid(row=1, column=0, sticky="nsew", padx=2, pady=2)
+        ctk.CTkLabel(f3, text=" 匹配结果", font=("Microsoft YaHei UI", 10),
+                    text_color=THEME["text_muted"]).pack(anchor="w", padx=4, pady=1)
+        self.viewer_result = RasterViewer(f3)
+        self.viewer_result.pack(fill="both", expand=True)
 
-        self.fig.canvas.draw()
+        # 右下：热力图 (matplotlib)
+        f4 = ctk.CTkFrame(grid, fg_color=THEME["card"])
+        f4.grid(row=1, column=1, sticky="nsew", padx=2, pady=2)
+        ctk.CTkLabel(f4, text=" 相关系数热力图", font=("Microsoft YaHei UI", 10),
+                    text_color=THEME["text_muted"]).pack(anchor="w", padx=4, pady=1)
+        from matplotlib.figure import Figure
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        self.fig_heat = Figure(figsize=(4, 3), dpi=100, facecolor=THEME["card"])
+        self.ax_heat = self.fig_heat.add_subplot(111)
+        self.canvas_heat = FigureCanvasTkAgg(self.fig_heat, master=f4)
+        self.canvas_heat.get_tk_widget().pack(fill="both", expand=True)
+
+        self.viewer_template._on_coord_change = lambda t: self.coord_var.set(t)
+        self.viewer_search._on_coord_change = lambda t: self.coord_var.set(t)
+        self.viewer_result._on_coord_change = lambda t: self.coord_var.set(t)
 
     def _update_threshold(self, v):
         self.threshold_label.configure(text=f"当前值: {float(v):.2f}")
@@ -224,27 +253,19 @@ class MatchTab(ctk.CTkFrame):
         self.template_count_label.configure(text=f"模板数量：{len(self.templates)}")
 
     def _update_display(self):
-        for ax in [self.ax1, self.ax2, self.ax3, self.ax4]:
-            ax.clear()
-            ax.axis("off")
-            ax.set_facecolor(THEME["panel"])
-        self.ax1.set_title("目标窗口预览", fontsize=10, color=THEME["text_primary"])
-        self.ax2.set_title("搜索区域", fontsize=10, color=THEME["text_primary"])
-        self.ax3.set_title("匹配结果", fontsize=10, color=THEME["text_primary"])
-        self.ax4.set_title("相关系数热力图", fontsize=10, color=THEME["text_primary"])
-
+        """更新所有视图"""
         if self.templates:
-            img, name, _ = self.templates[0]
-            self.ax1.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            img, _, _ = self.templates[0]
+            self.viewer_template.load(image_array=cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
         if self.search_img is not None:
-            self.ax2.imshow(cv2.cvtColor(self.search_img, cv2.COLOR_BGR2RGB))
+            self.viewer_search.load(image_array=cv2.cvtColor(self.search_img, cv2.COLOR_BGR2RGB))
         if self.result_img is not None:
-            self.ax3.imshow(cv2.cvtColor(self.result_img, cv2.COLOR_BGR2RGB))
+            self.viewer_result.load(image_array=cv2.cvtColor(self.result_img, cv2.COLOR_BGR2RGB))
         if self.correlation_map is not None:
-            im = self.ax4.imshow(self.correlation_map, cmap="jet", vmin=0, vmax=1)
-            self.fig.colorbar(im, ax=self.ax4, shrink=0.8)
-
-        self.canvas.draw()
+            self.ax_heat.clear()
+            im = self.ax_heat.imshow(self.correlation_map, cmap="jet", vmin=0, vmax=1)
+            self.fig_heat.colorbar(im, ax=self.ax_heat, fraction=0.046)
+            self.canvas_heat.draw()
 
     def add_template(self):
         paths = filedialog.askopenfilenames(filetypes=[("图像", "*.png;*.jpg;*.bmp;*.tiff")])
