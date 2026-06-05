@@ -1,4 +1,4 @@
-# ui/feature_tab.py
+﻿# ui/feature_tab.py
 import os
 from tkinter import filedialog, messagebox
 
@@ -129,7 +129,7 @@ class FeatureTab(ctk.CTkFrame):
         )
 
         # 点大小
-        self.add_slider_entry(self.feature_card.content, "特征点大小", self.point_size, 1, 10, 1)
+        self.add_slider_entry(self.feature_card.content, "特征点大小", self.point_size, 1, 5, 1)
 
         # 显示开关
         ctk.CTkCheckBox(
@@ -268,19 +268,6 @@ class FeatureTab(ctk.CTkFrame):
         # 更新显示（RasterViewer）
         self.viewer_original.load(image_array=cv2.cvtColor(self.original_img, cv2.COLOR_BGR2RGB))
         self.viewer_result.load(image_array=cv2.cvtColor(self.result_img, cv2.COLOR_BGR2RGB))
-
-        # 在结果图上叠加特征点
-        self.viewer_result.clear_overlays()
-        try:
-            kp_ys, kp_xs = np.where(mask > 0)
-            step = max(1, len(kp_ys) // 2000)
-            for i in range(0, len(kp_ys), step):
-                self.viewer_result.add_point(
-                    float(kp_xs[i]), float(kp_ys[i]),
-                    color=THEME["accent"], radius=2
-                )
-        except Exception:
-            pass
 
         # 更新统计信息和状态栏
         self.count_label.configure(text=f"检测到特征点：{cnt}")

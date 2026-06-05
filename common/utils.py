@@ -1,3 +1,4 @@
+﻿import os
 import threading
 
 import cv2
@@ -68,8 +69,8 @@ def put_chinese_text(img, text, position, font_size, color):
 
     try:
         font = ImageFont.truetype("simhei.ttf", font_size)
-    except Exception:  # 字体加载降级
-        font = ImageFont.load_default()
+    except Exception as e:
+        logger.debug(f'字体加载降级: {e}'); font = ImageFont.load_default()
 
     draw.text(position, text, font=font, fill=color)
     return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
@@ -115,3 +116,31 @@ def non_max_suppression(boxes, scores, iou_threshold):
         indices = indices[1:][iou < iou_threshold]
 
     return keep
+
+
+def imread_chinese(path, flags=cv2.IMREAD_COLOR):
+    """支持中文路径的cv2.imread替代函数"""
+    try:
+        with open(path, 'rb') as f:
+            data = np.frombuffer(f.read(), dtype=np.uint8)
+        img = cv2.imdecode(data, flags)
+        if img is None:
+            raise ValueError(f'无法读取图像: {path}')
+        return img
+    except Exception as e:
+        logger.error(f'读取图像失败 [{path}]: {e}')
+        raise
+
+def imwrite_chinese(path, img, params=None):
+    """支持中文路径的cv2.imwrite替代函数"""
+    try:
+        ext = os.path.splitext(path)[1].lower()
+        if not ext:
+            ext = '.png'
+        _, buf = cv2.imencode(ext, img, params or [])
+        with open(path, 'wb') as f:
+            f.write(buf)
+        return True
+    except Exception as e:
+        logger.error(f'写入图像失败 [{path}]: {e}')
+        return False

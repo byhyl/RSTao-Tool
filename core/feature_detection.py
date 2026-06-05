@@ -1,3 +1,4 @@
+﻿from common import utils
 import cv2
 import numpy as np
 
@@ -79,7 +80,7 @@ class FeatureDetection:
 
     # 加载/保存
     def load_image(self, path):
-        return cv2.imread(path)
+        return utils.imread_chinese(path)
 
     def save_image(self, img, path):
-        cv2.imwrite(path, img)
+        utils.imwrite_chinese(path, img)

@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 
 from common.logger import logger
+from common import utils
 
 
 @dataclass
@@ -96,7 +97,7 @@ class BatchProcessor:
                            params={"harris_k": harris_k, "threshold": threshold})
             try:
                 task.status = "running"
-                gray = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+                gray = utils.imread_chinese(img_path, cv2.IMREAD_GRAYSCALE)
                 if gray is None:
                     raise ValueError(f"无法读取影像: {img_path}")
 
@@ -130,7 +131,7 @@ class BatchProcessor:
         recursive: bool = False,
     ) -> BatchResult:
         """批量影像匹配（模板匹配）"""
-        template = cv2.imread(template_path)
+        template = utils.imread_chinese(template_path)
         if template is None:
             raise ValueError(f"模板影像读取失败: {template_path}")
 
@@ -146,7 +147,7 @@ class BatchProcessor:
                            params={"method": method, "threshold": threshold})
             try:
                 task.status = "running"
-                img = cv2.imread(img_path)
+                img = utils.imread_chinese(img_path)
                 if img is None:
                     raise ValueError(f"无法读取影像: {img_path}")
 
@@ -170,7 +171,7 @@ class BatchProcessor:
 
                     name = Path(img_path).stem
                     out_path = os.path.join(output_dir, f"{name}_matched.png")
-                    cv2.imwrite(out_path, result_img)
+                    utils.imwrite_chinese(out_path, result_img)
                     task.result = out_path
                     task.status = "done"
                 else:

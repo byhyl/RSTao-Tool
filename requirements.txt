@@ -30,3 +30,5 @@ pytest-cov>=4.1.0
 black>=23.0
 isort>=5.12.0
 pyinstaller>=6.0.0
+
+rasterio>=1.3

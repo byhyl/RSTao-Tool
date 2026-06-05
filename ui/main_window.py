@@ -245,6 +245,7 @@ class MainWindow(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.status_vars: Dict[str, ctk.StringVar] = {
+            "coords": ctk.StringVar(value=""),
             "image_size": ctk.StringVar(value="无图像"),
             "algorithm": ctk.StringVar(value="就绪"),
             "features": ctk.StringVar(value="0"),

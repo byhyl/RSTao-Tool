@@ -221,6 +221,7 @@ class CoordinateSystem:
         if not info.width:
             try:
                 from PIL import Image
+                Image.MAX_IMAGE_PIXELS = None
                 with Image.open(path) as im:
                     info.width, info.height = im.size
                     info.bands = len(im.getbands())

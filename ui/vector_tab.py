@@ -8,6 +8,7 @@ import numpy as np
 
 from common.config import DEFAULT_VECTOR_COLOR, SELECTED_COLOR
 from common.logger import logger
+from common import utils
 from common.utils import safe_execute, set_chinese_font
 from core import (
     add_property_field,
@@ -46,6 +47,12 @@ class VectorTab(ctk.CTkFrame):
         self.drawing_points = []
         self.temp_artists = []
         self.move_start = None
+
+        # 橡皮筋
+        self._mouse_x = 0
+        self._mouse_y = 0
+        self._rubber_band = None  # (x1,y1,x2,y2) 当前橡皮筋线段
+        self._vertex_drag_idx = None  # 顶点拖拽索引
 
         # 影像底图
         self.base_image = None
@@ -103,6 +110,7 @@ class VectorTab(ctk.CTkFrame):
             ("绘制点", "draw_point"),
             ("绘制线", "draw_line"),
             ("绘制面", "draw_polygon"),
+            ("编辑顶点", "edit_vertices"),
         ]
         for t, v in tools:
             ctk.CTkRadioButton(
@@ -264,18 +272,16 @@ class VectorTab(ctk.CTkFrame):
             "select": "点击选择要素",
             "move": "拖动移动要素",
             "draw_point": "点击绘制点",
-            "draw_line": "双击结束绘制",
-            "draw_polygon": "双击闭合面",
+            "draw_line": "左键加点 右键取消 双击结束",
+            "draw_polygon": "左键加点 右键取消 双击闭合",
+            "edit_vertices": "先选择要素 再拖拽顶点调整形状",
         }
         self.tip_label.configure(text=tips[self.edit_mode])
         self.status_vars["algorithm"].set(f"编辑模式: {self.edit_mode}")
 
     def clear_temp(self):
-        for a in self.temp_artists:
-            a.remove()
-        self.temp_artists = []
-        if hasattr(self, "viewer"):
-            self.viewer.render()
+        self.drawing_points = []
+        self.redraw()
 
     def _reset_selection(self):
         """重置所有选中状态（关键修复）"""
@@ -329,7 +335,7 @@ class VectorTab(ctk.CTkFrame):
         if not path:
             return
 
-        img = cv2.imread(path)
+        img = utils.imread_chinese(path)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         h, w = img.shape[:2]
 
@@ -341,16 +347,13 @@ class VectorTab(ctk.CTkFrame):
         messagebox.showinfo("成功", "影像底图导入完成")
 
     def _on_viewer_coord(self, text):
-        if text:
-            self.status_vars["coords"].set(text)
-        else:
-            self.status_vars["coords"].set("")
-
+        if "coords" in self.status_vars:
+            self.status_vars["coords"].set(text or "")
     def redraw(self):
         self.viewer.clear_overlays()
 
-        # base image
-        if self.base_image is not None:
+        # base image (only load once, don't reset zoom on redraw)
+        if self.base_image is not None and self.viewer._pil_image is None:
             self.viewer.load(image_array=self.base_image)
 
         # vector layers
@@ -385,7 +388,13 @@ class VectorTab(ctk.CTkFrame):
                     g["coordinates"][0], color="red", width=2
                 )
 
-        # temp drawing points
+        # 顶点编辑模式：显示所有顶点
+        if self.edit_mode == "edit_vertices" and self.selected_feature:
+            for idx, (vx, vy) in enumerate(self._get_vertices(self.selected_feature)):
+                self.viewer.add_rect(vx-4, vy-4, vx+4, vy+4,
+                                    color="#ffaa00", width=2, label=str(idx))
+
+        # temp drawing points + rubber-band
         if self.drawing_points:
             for px, py in self.drawing_points:
                 self.viewer.add_point(px, py, color="red", radius=5)
@@ -393,6 +402,12 @@ class VectorTab(ctk.CTkFrame):
                 self.viewer.add_polygon(
                     self.drawing_points, color="red", width=1
                 )
+            # 橡皮筋：最后一点到鼠标位置
+            lx, ly = self.drawing_points[-1]
+            self.viewer.add_polygon(
+                [(lx, ly), (self._mouse_x, self._mouse_y)],
+                color="#ff6600", width=1
+            )
 
         self.viewer.render()
         self.refresh_prop()
@@ -477,6 +492,20 @@ class VectorTab(ctk.CTkFrame):
             if self.selected_layer_idx != None
             else self.layers[0]
         )
+        # 像素坐标(y-down) -> GIS/CAD坐标(y-up) 翻转
+        if self.base_image is not None:
+            h = self.base_image.shape[0]
+            import copy
+            layer = copy.deepcopy(layer)
+            for f in layer["features"]:
+                g = f["geometry"]
+                if g["type"] == "Point":
+                    g["coordinates"][1] = h - g["coordinates"][1]
+                elif g["type"] == "LineString":
+                    g["coordinates"] = [(x, h-y) for x,y in g["coordinates"]]
+                elif g["type"] == "Polygon":
+                    for ring in g["coordinates"]:
+                        ring[:] = [(x, h-y) for x,y in ring]
         if fmt == "shp":
             save_shp(layer, path)
         else:
@@ -485,8 +514,25 @@ class VectorTab(ctk.CTkFrame):
 
     # ========== 鼠标事件 ==========
     def on_mouse_down(self, px, py, event):
+        # 右键取消绘制
+        if isinstance(event, dict) and event.get("type") == "right":
+            if self.edit_mode in ["draw_line", "draw_polygon"]:
+                self.drawing_points = []
+                self.clear_temp()
+            return
+
         if self.edit_mode == "select":
             self._select(px, py)
+        elif self.edit_mode == "edit_vertices":
+            if self.selected_feature:
+                idx = self._find_nearest_vertex(px, py)
+                if idx is not None:
+                    self._vertex_drag_idx = idx
+                    self.move_start = (px, py)
+                else:
+                    self._select(px, py)
+            else:
+                self._select(px, py)
         elif self.edit_mode == "move":
             self.move_start = (px, py)
         elif self.edit_mode == "draw_point":
@@ -496,6 +542,15 @@ class VectorTab(ctk.CTkFrame):
             self._update_temp()
 
     def on_mouse_move(self, px, py, event):
+        # 跟踪鼠标位置（橡皮筋用）
+        self._mouse_x, self._mouse_y = px, py
+
+        # 绘制模式下的橡皮筋
+        if self.edit_mode in ["draw_line", "draw_polygon"] and self.drawing_points:
+            self.redraw()
+            return
+
+        # 移动模式
         if not (
             self.edit_mode == "move"
             and self.selected_feature
@@ -509,6 +564,21 @@ class VectorTab(ctk.CTkFrame):
         ):
             return
 
+        # 顶点编辑拖拽
+        if self.edit_mode == "edit_vertices" and self._vertex_drag_idx is not None and self.selected_feature:
+            verts = self._get_vertices(self.selected_feature)
+            if 0 <= self._vertex_drag_idx < len(verts):
+                g = self.selected_feature["geometry"]
+                if g["type"] == "Point":
+                    g["coordinates"] = [px, py]
+                elif g["type"] == "LineString":
+                    g["coordinates"][self._vertex_drag_idx] = [px, py]
+                elif g["type"] == "Polygon":
+                    g["coordinates"][0][self._vertex_drag_idx] = [px, py]
+                self.layers[self.selected_layer_idx]["features"][self.selected_feature_idx] = self.selected_feature
+            self.redraw()
+            return
+
         dx, dy = px - self.move_start[0], py - self.move_start[1]
         self.selected_feature = move_feature(self.selected_feature, dx, dy)
         self.layers[self.selected_layer_idx]["features"][
@@ -517,14 +587,38 @@ class VectorTab(ctk.CTkFrame):
         self.move_start = (px, py)
         self.redraw()
     def on_mouse_up(self, px, py, event):
-        if self.edit_mode == "move":
+        if self.edit_mode in ("move", "edit_vertices"):
             self.move_start = None
+            self._vertex_drag_idx = None
 
     def on_click(self, px, py):
         if self.edit_mode == "draw_line" and len(self.drawing_points) >= 2:
             self._finish_line()
         elif self.edit_mode == "draw_polygon" and len(self.drawing_points) >= 3:
             self._finish_poly()
+
+    def _get_vertices(self, feature):
+        """获取要素的所有顶点坐标列表"""
+        g = feature["geometry"]
+        if g["type"] == "Point":
+            return [tuple(g["coordinates"])]
+        elif g["type"] == "LineString":
+            return [tuple(c) for c in g["coordinates"]]
+        elif g["type"] == "Polygon":
+            return [tuple(c) for c in g["coordinates"][0]]
+        return []
+
+    def _find_nearest_vertex(self, x, y, tolerance=10):
+        """找到选中要素中距离(x,y)最近的顶点索引"""
+        if not self.selected_feature:
+            return None
+        verts = self._get_vertices(self.selected_feature)
+        best_idx, best_dist = None, tolerance
+        for i, (vx, vy) in enumerate(verts):
+            d = ((vx - x)**2 + (vy - y)**2) ** 0.5
+            if d < best_dist:
+                best_dist, best_idx = d, i
+        return best_idx
 
     def _select(self, x, y):
         self.selected_layer_idx, self.selected_feature_idx, self.selected_feature = select_feature(
@@ -548,6 +642,8 @@ class VectorTab(ctk.CTkFrame):
 
     def _update_temp(self):
         self.redraw()
+
+    def _finish_line(self):
         if not self.layers:
             self.layers.append(create_new_layer("线图层", "LineString"))
             self.layers[0]["color"] = DEFAULT_VECTOR_COLOR
@@ -614,7 +710,7 @@ class VectorTab(ctk.CTkFrame):
         if base_path and os.path.exists(base_path):
             try:
                 self.base_image_path = base_path
-                img = cv2.imread(base_path)
+                img = utils.imread_chinese(base_path)
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                 h, w = img.shape[:2]
                 self.base_image = img

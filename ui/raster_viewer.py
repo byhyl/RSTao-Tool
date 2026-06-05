@@ -3,6 +3,7 @@ import math
 import os
 import numpy as np
 from PIL import Image, ImageTk
+Image.MAX_IMAGE_PIXELS = None  # 允许超大影像
 import customtkinter as ctk
 from .theme import THEME
 
@@ -46,6 +47,7 @@ class RasterViewer(ctk.CTkFrame):
         self._canvas.bind("<B1-Motion>", self._on_left_drag)
         self._canvas.bind("<ButtonRelease-1>", self._on_left_release)
         self._canvas.bind("<Double-Button-1>", self._on_left_dblclick)
+        self._canvas.bind("<Button-3>", self._on_right_click)
 
     # ==================== 加载 ====================
     def load(self, path="", image_array=None, geo_transform=None):
@@ -85,6 +87,14 @@ class RasterViewer(ctk.CTkFrame):
         self._overview_scale = 1.0
 
     # ==================== 叠加层 ====================
+    @staticmethod
+    def _to_tk_color(c):
+        """将 matplotlib tuple (0.2,0.5,0.8) 或 hex '#3388cc' 转为 tkinter 颜色"""
+        if isinstance(c, tuple):
+            r, g, b = [max(0, min(255, int(v * 255))) for v in c[:3]]
+            return f"#{r:02x}{g:02x}{b:02x}"
+        return str(c) if c else ""
+
     def clear_overlays(self):
         self._overlays.clear()
 
@@ -181,11 +191,17 @@ class RasterViewer(ctk.CTkFrame):
             px, py = self.canvas_to_image(event.x, event.y)
             if 0 <= px < self._img_width and 0 <= py < self._img_height:
                 self._on_dblclick(px, py)
+    def _on_right_click(self, event):
+        if self._on_mouse_down and self._img_width > 0:
+            px, py = self.canvas_to_image(event.x, event.y)
+            self._on_mouse_down(px, py, {"type": "right"})
+
+
     def render(self):
         if not self._pil_image:
             return
-        cw = self._canvas.winfo_width()
-        ch = self._canvas.winfo_height()
+        cw = self._canvas.winfo_width() or 800
+        ch = self._canvas.winfo_height() or 600
         if cw < 4 or ch < 4:
             return
         self._canvas.delete("all")
@@ -217,21 +233,21 @@ class RasterViewer(ctk.CTkFrame):
             if k == "point":
                 cx, cy = self._to_canvas(ov[1], ov[2])
                 r = ov[4]
-                self._canvas.create_oval(cx-r, cy-r, cx+r, cy+r, outline=ov[3], width=2)
+                self._canvas.create_oval(cx-r, cy-r, cx+r, cy+r, outline=self._to_tk_color(ov[3]), width=2)
                 if ov[5]:
                     self._canvas.create_text(cx+r+4, cy, text=ov[5], anchor="w",
                                             fill="#fff", font=("Consolas", 9))
             elif k == "rect":
                 cx1, cy1 = self._to_canvas(ov[1], ov[2])
                 cx2, cy2 = self._to_canvas(ov[3], ov[4])
-                self._canvas.create_rectangle(cx1, cy1, cx2, cy2, outline=ov[5], width=ov[6])
+                self._canvas.create_rectangle(cx1, cy1, cx2, cy2, outline=self._to_tk_color(ov[5]), width=ov[6])
                 if ov[7]:
                     self._canvas.create_text(cx1+4, cy1-10, text=ov[7], anchor="w",
-                                            fill=ov[5], font=("Consolas", 9))
+                                            fill=self._to_tk_color(ov[5]), font=("Consolas", 9))
             elif k == "polygon":
                 pts = [c for p in ov[1] for c in self._to_canvas(*p)]
                 if len(pts) >= 4:
-                    self._canvas.create_polygon(pts, outline=ov[2], fill=ov[3] or "",
+                    self._canvas.create_polygon(pts, outline=self._to_tk_color(ov[2]), fill=self._to_tk_color(ov[3]) or "",
                                                width=ov[4])
             elif k == "text":
                 cx, cy = self._to_canvas(ov[1], ov[2])

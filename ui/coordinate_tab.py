@@ -12,6 +12,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from core.coordinate_system import (CHINA_EPSG, COMMON_EPSG, CoordinateSystem,
                                      PointSet, RasterInfo, SevenParams)
 from .raster_viewer import RasterViewer
+from common.utils import safe_execute
 from .theme import THEME, FONT_NORMAL, FONT_SMALL, FONT_SUBTITLE, SECTION_STYLE
 
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
@@ -223,13 +224,16 @@ class CoordinateTab(ctk.CTkFrame):
         self._show_points_view()
         self._plot_points()
 
+    @safe_execute
     def _load_raster(self):
+        """导入影像（支持 GeoTIFF / PNG / JPG / BMP）"""
         path = filedialog.askopenfilename(
             title="导入影像",
-            filetypes=[("影像", "*.tif *.tiff *.png *.jpg *.jpeg *.bmp"), ("所有文件", "*.*")]
+            filetypes=[("影像", "*.tif *.tiff *.png *.jpg *.jpeg *.bmp *.img"), ("所有文件", "*.*")]
         )
         if not path:
             return
+        # 先读取 CRS 信息（rasterio/Pillow 兜底）
         self.raster_info = self.cs.read_raster_info(path)
         self.point_set = PointSet()
         name = os.path.basename(path)
@@ -245,14 +249,24 @@ class CoordinateTab(ctk.CTkFrame):
                 if v == self.raster_info.epsg:
                     self.src_epsg.set(k)
                     break
-        # 设置地理变换
+        # 地理变换
         geo_t = None
         if self.raster_info.bounds != (0, 0, 0, 0) and self.raster_info.pixel_size != (1.0, 1.0):
             b = self.raster_info.bounds
             geo_t = (b[0], self.raster_info.pixel_size[0], 0,
                      b[3], 0, -self.raster_info.pixel_size[1])
+        # 切换到栅格视图并显示影像
         self._show_raster_view()
-        self.raster_viewer.load(path, geo_transform=geo_t)
+        self.update_idletasks()  # 强制布局，确保canvas有尺寸
+        try:
+            self.raster_viewer.load(path, geo_transform=geo_t)
+        except Exception:
+            # 兜底：直接用 PIL 加载
+            from PIL import Image
+            import numpy as np
+            im = Image.open(path).convert("RGB")
+            arr = np.array(im)
+            self.raster_viewer.load(image_array=arr, geo_transform=geo_t)
 
     def _bbox_str(self):
         if not self.point_set.points:

@@ -1,4 +1,5 @@
-﻿"""ONNX 目标检测面板"""
+﻿from common import utils
+"""ONNX 目标检测面板"""
 import os
 from tkinter import filedialog, messagebox
 
@@ -118,7 +119,7 @@ class DetectionTab(ctk.CTkFrame):
             filetypes=[("影像文件", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp *.webp")]
         )
         if path:
-            self.current_image = cv2.imread(path)
+            self.current_image = utils.imread_chinese(path)
             if self.current_image is not None:
                 self._show_image(self.current_image)
                 self.detect_status.configure(text=f"已加载: {os.path.basename(path)}",
@@ -157,7 +158,7 @@ class DetectionTab(ctk.CTkFrame):
             filetypes=[("PNG", "*.png"), ("JPEG", "*.jpg")]
         )
         if path:
-            cv2.imwrite(path, self.result_image)
+            utils.imwrite_chinese(path, self.result_image)
             messagebox.showinfo("成功", f"结果已保存至 {path}")
 
     def _show_image(self, img):
