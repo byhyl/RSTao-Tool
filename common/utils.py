@@ -120,6 +120,8 @@ def non_max_suppression(boxes, scores, iou_threshold):
 
 def imread_chinese(path, flags=cv2.IMREAD_COLOR):
     """支持中文路径的cv2.imread替代函数"""
+    if not path or not os.path.exists(path):
+        return None
     try:
         with open(path, 'rb') as f:
             data = np.frombuffer(f.read(), dtype=np.uint8)
