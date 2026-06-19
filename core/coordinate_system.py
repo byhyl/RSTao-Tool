@@ -1,4 +1,5 @@
-﻿"""坐标系转换模块 — EPSG + 7参数 Bursa-Wolf + 文件解析"""
+"""坐标系转换模块 — EPSG + 7参数 Bursa-Wolf + 文件解析"""
+
 import csv
 import io
 import math
@@ -10,7 +11,6 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from common.logger import logger
-
 
 # ====================== 常用 EPSG 定义 ======================
 COMMON_EPSG = {
@@ -39,12 +39,13 @@ CHINA_EPSG = {
 @dataclass
 class SevenParams:
     """7参数 Bursa-Wolf 模型"""
-    dx: float = 0.0     # 平移 X (m)
-    dy: float = 0.0     # 平移 Y (m)
-    dz: float = 0.0     # 平移 Z (m)
-    rx: float = 0.0     # 旋转 X (arcsec)
-    ry: float = 0.0     # 旋转 Y (arcsec)
-    rz: float = 0.0     # 旋转 Z (arcsec)
+
+    dx: float = 0.0  # 平移 X (m)
+    dy: float = 0.0  # 平移 Y (m)
+    dz: float = 0.0  # 平移 Z (m)
+    rx: float = 0.0  # 旋转 X (arcsec)
+    ry: float = 0.0  # 旋转 Y (arcsec)
+    rz: float = 0.0  # 旋转 Z (arcsec)
     scale: float = 0.0  # 尺度因子 (ppm)
 
     def to_matrix(self) -> np.ndarray:
@@ -52,11 +53,16 @@ class SevenParams:
         sec_to_rad = math.pi / (180.0 * 3600.0)
         ppm_to_scale = 1.0 + self.scale * 1e-6
         rx, ry, rz = self.rx * sec_to_rad, self.ry * sec_to_rad, self.rz * sec_to_rad
-        R = np.array([
-            [1, -rz, ry],
-            [rz, 1, -rx],
-            [-ry, rx, 1],
-        ]) * ppm_to_scale
+        R = (
+            np.array(
+                [
+                    [1, -rz, ry],
+                    [rz, 1, -rx],
+                    [-ry, rx, 1],
+                ]
+            )
+            * ppm_to_scale
+        )
         T = np.array([[self.dx], [self.dy], [self.dz]])
         M = np.eye(4)
         M[:3, :3] = R
@@ -86,14 +92,16 @@ class CoordinateTransform:
 @dataclass
 class PointSet:
     """点集"""
+
     points: List[Tuple[float, float]] = field(default_factory=list)
     names: List[str] = field(default_factory=list)
     source_file: str = ""
 
 
-@dataclass  
+@dataclass
 class RasterInfo:
     """栅格影像信息"""
+
     path: str = ""
     width: int = 0
     height: int = 0
@@ -111,7 +119,8 @@ class CoordinateSystem:
         self._pyproj_available = False
         self._rasterio_available = False
         try:
-            from pyproj import Transformer, CRS
+            from pyproj import CRS, Transformer
+
             self._Transformer = Transformer
             self._CRS = CRS
             self._pyproj_available = True
@@ -119,6 +128,7 @@ class CoordinateSystem:
             logger.warning("pyproj 未安装，坐标系转换功能受限")
         try:
             import rasterio
+
             self._rasterio_available = True
         except ImportError:
             pass
@@ -132,29 +142,43 @@ class CoordinateSystem:
         return {**COMMON_EPSG, **CHINA_EPSG}
 
     # ---- 点坐标转换 ----
-    def transform_point(self, x: float, y: float, src_epsg: int, dst_epsg: int,
-                        params: SevenParams = None) -> Optional[Tuple[float, float]]:
+    def transform_point(
+        self, x: float, y: float, src_epsg: int, dst_epsg: int, params: SevenParams = None
+    ) -> Optional[Tuple[float, float]]:
         if not self._pyproj_available:
             return None
         try:
-            if params and any([params.dx, params.dy, params.dz, params.rx, params.ry, params.rz, params.scale]):
+            if params and any(
+                [params.dx, params.dy, params.dz, params.rx, params.ry, params.rz, params.scale]
+            ):
                 return self._transform_7param(x, y, params)
-            transformer = self._Transformer.from_crs(f"EPSG:{src_epsg}", f"EPSG:{dst_epsg}")
+            transformer = self._Transformer.from_crs(
+                f"EPSG:{src_epsg}", f"EPSG:{dst_epsg}", always_xy=True
+            )
             return transformer.transform(x, y)
         except Exception as e:
             logger.error(f"坐标转换失败: {e}")
             return None
 
-    def transform_points(self, points: List[Tuple[float, float]], src_epsg: int, dst_epsg: int,
-                         params: SevenParams = None) -> List[Tuple[float, float]]:
+    def transform_points(
+        self,
+        points: List[Tuple[float, float]],
+        src_epsg: int,
+        dst_epsg: int,
+        params: SevenParams = None,
+    ) -> List[Tuple[float, float]]:
         if not points:
             return []
         if not self._pyproj_available:
             return points
         try:
-            if params and any([params.dx, params.dy, params.dz, params.rx, params.ry, params.rz, params.scale]):
+            if params and any(
+                [params.dx, params.dy, params.dz, params.rx, params.ry, params.rz, params.scale]
+            ):
                 return [self._transform_7param(x, y, params) for x, y in points]
-            transformer = self._Transformer.from_crs(f"EPSG:{src_epsg}", f"EPSG:{dst_epsg}")
+            transformer = self._Transformer.from_crs(
+                f"EPSG:{src_epsg}", f"EPSG:{dst_epsg}", always_xy=True
+            )
             xs, ys = zip(*points)
             lons, lats = transformer.transform(xs, ys)
             return list(zip(lons, lats))
@@ -162,8 +186,9 @@ class CoordinateSystem:
             logger.error(f"批量转换失败: {e}")
             return points
 
-    def _transform_7param(self, x: float, y: float, params: SevenParams,
-                          src_elev: float = 0) -> Tuple[float, float]:
+    def _transform_7param(
+        self, x: float, y: float, params: SevenParams, src_elev: float = 0
+    ) -> Tuple[float, float]:
         """7参数 Bursa-Wolf 变换 (WGS84 经纬度 → 目标坐标系)"""
         # 先将经纬度转为地心直角坐标
         a, f = 6378137.0, 1.0 / 298.257223563
@@ -193,6 +218,7 @@ class CoordinateSystem:
         if self._rasterio_available:
             try:
                 import rasterio
+
                 with rasterio.open(path) as ds:
                     info.width, info.height = ds.width, ds.height
                     info.bands = ds.count
@@ -207,13 +233,14 @@ class CoordinateSystem:
         if not info.width:
             try:
                 import tifffile
+
                 with tifffile.TiffFile(path) as tif:
                     page = tif.pages[0]
                     info.width, info.height = page.shape[1], page.shape[0]
-                    info.bands = page.samplesperpixel if hasattr(page, 'samplesperpixel') else 1
+                    info.bands = page.samplesperpixel if hasattr(page, "samplesperpixel") else 1
                     # Try to read GeoKeyDirectoryTag
                     for tag in tif.pages[0].tags.values():
-                        if hasattr(tag, 'name') and 'GeoKey' in str(tag.name):
+                        if hasattr(tag, "name") and "GeoKey" in str(tag.name):
                             info.crs = f"GeoTIFF tags found (EPSG unknown)"
             except Exception as e:
                 logger.warning(f"tifffile 读取失败: {e}")
@@ -221,6 +248,7 @@ class CoordinateSystem:
         if not info.width:
             try:
                 from PIL import Image
+
                 Image.MAX_IMAGE_PIXELS = None
                 with Image.open(path) as im:
                     info.width, info.height = im.size
@@ -258,13 +286,20 @@ class CoordinateSystem:
             if header:
                 for i, h in enumerate(header):
                     hl = h.strip().lower()
-                    if hl in ("x", "lon", "longitude", "easting", "东坐标", "经度"): x_idx = i
-                    if hl in ("y", "lat", "latitude", "northing", "北坐标", "纬度"): y_idx = i
+                    if hl in ("x", "lon", "longitude", "easting", "东坐标", "经度"):
+                        x_idx = i
+                    if hl in ("y", "lat", "latitude", "northing", "北坐标", "纬度"):
+                        y_idx = i
                 for i, row in enumerate(reader):
                     if len(row) >= 2:
                         try:
                             ps.points.append((float(row[x_idx]), float(row[y_idx])))
-                            ps.names.append(row[0] if len(row) > max(x_idx, y_idx) and i == 0 and not row[0].replace(".","").replace("-","").isdigit() else f"P{i+1}")
+                            ps.names.append(
+                                row[0]
+                                if len(row) > max(x_idx, y_idx)
+                                and not row[0].replace(".", "").replace("-", "").isdigit()
+                                else f"P{i+1}"
+                            )
                         except ValueError:
                             continue
             else:
@@ -293,21 +328,34 @@ class CoordinateSystem:
                         continue
         return ps
 
-    def export_points_csv(self, points: List[Tuple[float, float]], path: str,
-                          src_epsg: int, dst_epsg: int, names: List[str] = None):
+    def export_points_csv(
+        self,
+        points: List[Tuple[float, float]],
+        path: str,
+        src_epsg: int,
+        dst_epsg: int,
+        names: List[str] = None,
+    ):
         """导出转换后的点集为 CSV"""
         with open(path, "w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["Name", "Src_X", "Src_Y", "Dst_X", "Dst_Y"])
             names = names or [f"P{i+1}" for i in range(len(points))]
             for i, (sx, sy) in enumerate(points):
-                dx, dy = self.transform_point(sx, sy, src_epsg, dst_epsg)
+                result = self.transform_point(sx, sy, src_epsg, dst_epsg)
+                if result is None:
+                    continue
+                dx, dy = result
                 writer.writerow([names[i], sx, sy, dx, dy])
 
-    def wgs84_to_projection(self, lon: float, lat: float, dst_epsg: int) -> Optional[Tuple[float, float]]:
+    def wgs84_to_projection(
+        self, lon: float, lat: float, dst_epsg: int
+    ) -> Optional[Tuple[float, float]]:
         return self.transform_point(lon, lat, 4326, dst_epsg)
 
-    def projection_to_wgs84(self, x: float, y: float, src_epsg: int) -> Optional[Tuple[float, float]]:
+    def projection_to_wgs84(
+        self, x: float, y: float, src_epsg: int
+    ) -> Optional[Tuple[float, float]]:
         return self.transform_point(x, y, src_epsg, 4326)
 
     def auto_detect_utm(self, lon: float, lat: float) -> int:

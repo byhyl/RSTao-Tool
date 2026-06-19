@@ -1,9 +1,12 @@
 """工具函数测试"""
+
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
+
 from common.utils import non_max_suppression
 
 
@@ -47,7 +50,7 @@ class TestNMS:
         """部分重叠保留高分"""
         boxes = [
             (0, 0, 10, 10),
-            (5, 5, 15, 15),   # 与第一个重叠
+            (5, 5, 15, 15),  # 与第一个重叠
             (20, 20, 30, 30),  # 不重叠
         ]
         scores = [0.8, 0.9, 0.7]

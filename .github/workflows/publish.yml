@@ -1,0 +1,53 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,geo,ml]"
+
+      - name: Run tests
+        run: |
+          mkdir logs -Force
+          pytest tests/ -v --tb=short
+
+      - name: Build EXE
+        run: |
+          pyinstaller --onefile --windowed `
+            --collect-data customtkinter `
+            --hidden-import wmi `
+            --hidden-import pythoncom `
+            --hidden-import matplotlib.backends.backend_tkagg `
+            --hidden-import shapely `
+            --hidden-import fiona `
+            --hidden-import pyproj `
+            --hidden-import rasterio `
+            --hidden-import onnxruntime `
+            --collect-data rasterio `
+            --collect-submodules rasterio `
+            --name RSTao-Tool `
+            --icon assets/icon.ico `
+            --add-data "i18n;i18n" `
+            --add-data "assets;assets" `
+            main.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RSTao-Tool-${{ github.ref_name }}
+          path: dist/RSTao-Tool.exe

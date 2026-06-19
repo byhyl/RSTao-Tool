@@ -1,4 +1,4 @@
-﻿# ui/feature_tab.py
+# ui/feature_tab.py
 import os
 from tkinter import filedialog, messagebox
 
@@ -9,9 +9,12 @@ import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 from core.feature_detection import FeatureDetection
+from data.image_io import get_image_metadata
 
 from .raster_viewer import RasterViewer
+from .settings_manager import load_settings
 from .theme import FONT_NORMAL, FONT_SMALL, FONT_SUBTITLE, PANEL_STYLE, THEME, CollapsibleCard
+from .ui_helpers import make_button, notify, record_project_result
 
 
 class FeatureTab(ctk.CTkFrame):
@@ -20,6 +23,7 @@ class FeatureTab(ctk.CTkFrame):
         self.parent = parent
         self.status_vars = status_vars
         self.detector = FeatureDetection()
+        defaults = load_settings().get("defaults", {})
 
         # 图像变量
         self.original_img = None
@@ -31,10 +35,10 @@ class FeatureTab(ctk.CTkFrame):
         self.scale_ratio = ctk.DoubleVar(value=1.0)
         self.interp_method = ctk.StringVar(value="bilinear")
         self.feature_method = ctk.StringVar(value="harris")
-        self.point_size = ctk.IntVar(value=4)
+        self.point_size = ctk.IntVar(value=int(defaults.get("point_size", 4)))
         self.enable_feature = ctk.IntVar(value=1)
-        self.harris_k = ctk.DoubleVar(value=0.04)
-        self.susan_t = ctk.IntVar(value=25)
+        self.harris_k = ctk.DoubleVar(value=float(defaults.get("harris_k", 0.04)))
+        self.susan_t = ctk.IntVar(value=int(defaults.get("susan_t", 25)))
 
         # 阈值配置
         self.thresh_cfg = {
@@ -71,13 +75,13 @@ class FeatureTab(ctk.CTkFrame):
         self.data_card = CollapsibleCard(self.control_scroll, "数据管理")
         self.data_card.pack(fill="x", pady=5, padx=5)
 
-        ctk.CTkButton(self.data_card.content, text="加载图像", command=self.load_image).pack(
-            fill="x", pady=3, padx=5
-        )
-        ctk.CTkButton(self.data_card.content, text="保存结果", command=self.save_result).pack(
-            fill="x", pady=3, padx=5
-        )
-        ctk.CTkButton(self.data_card.content, text="重置视图", command=self.reset_view).pack(
+        make_button(
+            self.data_card.content, "加载图像", self.load_image, "primary", icon="open"
+        ).pack(fill="x", pady=3, padx=5)
+        make_button(
+            self.data_card.content, "保存结果", self.save_result, "secondary", icon="save"
+        ).pack(fill="x", pady=3, padx=5)
+        make_button(self.data_card.content, "重置视图", self.reset_view).pack(
             fill="x", pady=3, padx=5
         )
 
@@ -160,8 +164,12 @@ class FeatureTab(ctk.CTkFrame):
         self.coord_var = ctk.StringVar(value="")
         coord_bar = ctk.CTkFrame(self.display_frame, height=22, fg_color=THEME["statusbar"])
         coord_bar.pack(fill="x", side="top")
-        ctk.CTkLabel(coord_bar, textvariable=self.coord_var, font=("Consolas", 9),
-                    text_color=THEME["text_secondary"]).pack(side="left", padx=8)
+        ctk.CTkLabel(
+            coord_bar,
+            textvariable=self.coord_var,
+            font=("Consolas", 9),
+            text_color=THEME["text_secondary"],
+        ).pack(side="left", padx=8)
 
         # 双 RasterViewer 并排
         top = ctk.CTkFrame(self.display_frame, fg_color="transparent")
@@ -169,15 +177,17 @@ class FeatureTab(ctk.CTkFrame):
 
         left = ctk.CTkFrame(top, fg_color=THEME["card"])
         left.pack(side="left", fill="both", expand=True, padx=(0, 1))
-        ctk.CTkLabel(left, text=" 原始图像", font=("Microsoft YaHei UI", 10),
-                    text_color=THEME["text_muted"]).pack(anchor="w", padx=4, pady=1)
+        ctk.CTkLabel(
+            left, text=" 原始图像", font=("Microsoft YaHei UI", 10), text_color=THEME["text_muted"]
+        ).pack(anchor="w", padx=4, pady=1)
         self.viewer_original = RasterViewer(left)
         self.viewer_original.pack(fill="both", expand=True)
 
         right = ctk.CTkFrame(top, fg_color=THEME["card"])
         right.pack(side="right", fill="both", expand=True, padx=(1, 0))
-        ctk.CTkLabel(right, text=" 检测结果", font=("Microsoft YaHei UI", 10),
-                    text_color=THEME["text_muted"]).pack(anchor="w", padx=4, pady=1)
+        ctk.CTkLabel(
+            right, text=" 检测结果", font=("Microsoft YaHei UI", 10), text_color=THEME["text_muted"]
+        ).pack(anchor="w", padx=4, pady=1)
         self.viewer_result = RasterViewer(right)
         self.viewer_result.pack(fill="both", expand=True)
 
@@ -284,9 +294,18 @@ class FeatureTab(ctk.CTkFrame):
                 self.image_path = path
                 self.original_img = self.detector.load_image(path)
                 self.render()
-                messagebox.showinfo("成功", "图像加载完成")
+                self._update_image_metadata(path)
+                notify(self, f"图像加载完成：{os.path.basename(path)}", "success")
             except Exception as e:
                 messagebox.showerror("错误", f"加载失败：{str(e)}")
+
+    def load_image_silent(self, path):
+        """从拖拽等外部入口加载图像。"""
+        self.image_path = path
+        self.original_img = self.detector.load_image(path)
+        self.render()
+        self._update_image_metadata(path)
+        notify(self, f"图像加载完成：{os.path.basename(path)}", "success")
 
     def save_result(self):
         """保存结果图像"""
@@ -299,7 +318,21 @@ class FeatureTab(ctk.CTkFrame):
         if path:
             try:
                 self.detector.save_image(self.result_img, path)
-                messagebox.showinfo("成功", "结果保存完成")
+                record_project_result(
+                    self,
+                    "feature",
+                    "导出特征检测结果",
+                    inputs=[self.image_path],
+                    outputs=[path],
+                    params={
+                        "method": self.feature_method.get(),
+                        "threshold": self.cur_thresh.get(),
+                        "harris_k": self.harris_k.get(),
+                        "susan_t": self.susan_t.get(),
+                        "point_size": self.point_size.get(),
+                    },
+                )
+                notify(self, f"结果已保存：{path}", "success")
             except Exception as e:
                 messagebox.showerror("错误", f"保存失败：{str(e)}")
 
@@ -308,6 +341,15 @@ class FeatureTab(ctk.CTkFrame):
         self.angle.set(0)
         self.scale_ratio.set(1)
         self.render()
+
+    def _update_image_metadata(self, path):
+        try:
+            meta = get_image_metadata(path)
+            self.status_vars["image_size"].set(
+                f"{meta['width']}×{meta['height']} / {meta['bands']} bands / {meta['dtype']}"
+            )
+        except Exception:
+            pass
 
     def switch_method(self, *args):
         """切换检测算法，自动切换参数面板"""
@@ -368,10 +410,12 @@ class FeatureTab(ctk.CTkFrame):
                 self.image_path = image_path
                 self.original_img = self.detector.load_image(image_path)
                 self.render()
-            except:
+            except Exception:
                 pass
 
     def destroy(self):
         """销毁时清理资源"""
-        plt.close(self.fig)
+        fig = getattr(self, "fig", None)
+        if fig is not None:
+            plt.close(fig)
         super().destroy()

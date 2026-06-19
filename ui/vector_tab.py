@@ -1,4 +1,4 @@
-﻿# ui/vector_tab.py
+# ui/vector_tab.py
 import os
 from tkinter import filedialog, messagebox, ttk
 
@@ -6,9 +6,9 @@ import customtkinter as ctk
 import cv2
 import numpy as np
 
+from common import utils
 from common.config import DEFAULT_VECTOR_COLOR, SELECTED_COLOR
 from common.logger import logger
-from common import utils
 from common.utils import safe_execute, set_chinese_font
 from core import (
     add_property_field,
@@ -18,6 +18,7 @@ from core import (
     create_point_feature,
     create_polygon_feature,
     delete_property_field,
+    invalidate_shapely_cache,
     move_feature,
     select_feature,
     update_feature_property,
@@ -26,6 +27,8 @@ from data import read_shp, save_dwg, save_shp
 
 from .raster_viewer import RasterViewer
 from .theme import FONT_NORMAL, FONT_SMALL, FONT_SUBTITLE, PANEL_STYLE, THEME, CollapsibleCard
+from .ui_helpers import notify, record_project_result
+from .undo_manager import DeleteFeatureCommand, EditVertexCommand, MoveFeatureCommand, UndoManager
 
 set_chinese_font()
 
@@ -53,14 +56,24 @@ class VectorTab(ctk.CTkFrame):
         self._mouse_y = 0
         self._rubber_band = None  # (x1,y1,x2,y2) 当前橡皮筋线段
         self._vertex_drag_idx = None  # 顶点拖拽索引
+        self._vertex_old_pos = None
 
         # 影像底图
         self.base_image = None
         self.base_image_extent = None
         self.base_image_path = ""
+        self._viewer_content = ""
 
+        self.undo_mgr = UndoManager(on_change=self._on_undo_state_change)
         self.create_widgets()
         logger.info("矢量编辑标签页初始化完成")
+
+    def _on_undo_state_change(self, can_undo, can_redo):
+        """Update status bar with undo/redo state"""
+        if "undo" in self.status_vars:
+            u = "[Ctrl+Z]" if can_undo else ""
+            r = "[Ctrl+Y]" if can_redo else ""
+            self.status_vars["undo"].set(f"{u} {r}".strip())
 
     def create_widgets(self):
         # 1:3 统一布局（和其他标签页完全一致）
@@ -145,6 +158,7 @@ class VectorTab(ctk.CTkFrame):
         self.layer_tree.column("name", width=120)
         self.layer_tree.column("type", width=80)
         self.layer_tree.pack(fill="x", pady=2, padx=5)
+        self.layer_tree.bind("<<TreeviewSelect>>", self._on_layer_tree_select)
 
         # 图层操作按钮
         layer_btn_frame = ctk.CTkFrame(self.layer_card.content, fg_color="transparent")
@@ -209,9 +223,16 @@ class VectorTab(ctk.CTkFrame):
             on_dblclick=self.on_click,
         )
         self.viewer.pack(fill="both", expand=True, padx=5, pady=5)
+        self.after(50, self._ensure_blank_workspace)
 
+        # ========== 图层管理功能 ==========
 
-    # ========== 图层管理功能 ==========
+        # Keyboard shortcuts
+        self.master.bind("<Control-z>", lambda e: self.undo_mgr.undo())
+        self.master.bind("<Control-y>", lambda e: self.undo_mgr.redo())
+        self.master.bind("<Control-Z>", lambda e: self.undo_mgr.redo())
+        self.master.bind("<Delete>", lambda e: self.delete_selected())
+
     def refresh_layer_tree(self):
         """刷新图层树（修复geometry_type缺失问题）"""
         for i in self.layer_tree.get_children():
@@ -228,6 +249,65 @@ class VectorTab(ctk.CTkFrame):
             else:
                 geom_type = "空图层"
             self.layer_tree.insert("", "end", values=(layer["name"], geom_type))
+
+    def _on_layer_tree_select(self, _event=None):
+        idx = self._selected_tree_layer_index()
+        if idx is None:
+            return
+        self.selected_layer_idx = idx
+        self.selected_feature_idx = None
+        self.selected_feature = None
+        self.refresh_prop()
+        self.status_vars["features"].set("无选中")
+
+    def _selected_tree_layer_index(self):
+        sel = self.layer_tree.selection()
+        if not sel:
+            return None
+        idx = int(self.layer_tree.index(sel[0]))
+        return idx if 0 <= idx < len(self.layers) else None
+
+    def _layer_geometry_type(self, layer):
+        if "geometry_type" in layer:
+            return layer["geometry_type"]
+        schema = layer.get("schema") or {}
+        if schema.get("geometry"):
+            return schema["geometry"]
+        if layer.get("type"):
+            return layer["type"]
+        if layer.get("features"):
+            return layer["features"][0].get("geometry", {}).get("type", "")
+        return ""
+
+    def _ensure_draw_layer(self, geom_type, default_name):
+        idx = self._selected_tree_layer_index()
+        if idx is not None and self._layer_geometry_type(self.layers[idx]) == geom_type:
+            self.selected_layer_idx = idx
+            return idx, self.layers[idx]
+        if (
+            self.selected_layer_idx is not None
+            and 0 <= self.selected_layer_idx < len(self.layers)
+            and self._layer_geometry_type(self.layers[self.selected_layer_idx]) == geom_type
+        ):
+            return self.selected_layer_idx, self.layers[self.selected_layer_idx]
+        for i, layer in enumerate(self.layers):
+            if self._layer_geometry_type(layer) == geom_type:
+                self.selected_layer_idx = i
+                return i, layer
+
+        layer = create_new_layer(default_name, geom_type)
+        layer["visible"] = True
+        layer["color"] = DEFAULT_VECTOR_COLOR
+        layer["geometry_type"] = geom_type
+        self.layers.append(layer)
+        self.refresh_layer_tree()
+        self.selected_layer_idx = len(self.layers) - 1
+        return len(self.layers) - 1, layer
+
+    def _ensure_blank_workspace(self):
+        if self.base_image is None and self.viewer._pil_image is None:
+            self.viewer.load_blank()
+            self._viewer_content = "blank"
 
     def show_layer(self):
         """显示选中图层"""
@@ -295,16 +375,20 @@ class VectorTab(ctk.CTkFrame):
     def load_shp(self):
         p = filedialog.askopenfilename(filetypes=[("SHP文件", "*.shp")])
         if p:
-            layer = read_shp(p)
-            layer["name"] = os.path.basename(p).replace(".shp", "")
-            layer["path"] = p
-            layer["visible"] = True
-            layer["color"] = DEFAULT_VECTOR_COLOR
-            self.layers.append(layer)
-            self.refresh_layer_tree()
-            self.redraw()
-            self.status_vars["image_size"].set(f"图层数: {len(self.layers)}")
-            messagebox.showinfo("成功", "SHP文件加载完成")
+            self.load_shp_direct(p)
+
+    @safe_execute
+    def load_shp_direct(self, p):
+        layer = read_shp(p)
+        layer["name"] = os.path.basename(p).replace(".shp", "")
+        layer["path"] = p
+        layer["visible"] = True
+        layer["color"] = DEFAULT_VECTOR_COLOR
+        self.layers.append(layer)
+        self.refresh_layer_tree()
+        self.redraw()
+        self.status_vars["image_size"].set(f"图层数: {len(self.layers)}")
+        notify(self, f"SHP 文件加载完成：{os.path.basename(p)}", "success")
 
     @safe_execute
     def new_empty_layer(self):
@@ -325,7 +409,7 @@ class VectorTab(ctk.CTkFrame):
         self.layers.append(new_layer)
         self.refresh_layer_tree()
         self.redraw()
-        messagebox.showinfo("成功", f"已新建{layer_type}图层")
+        notify(self, f"已新建{layer_type}图层", "success")
 
     @safe_execute
     def load_base_image(self):
@@ -342,19 +426,24 @@ class VectorTab(ctk.CTkFrame):
         self.base_image_path = path
         self.base_image = img
         self.base_image_extent = [0, w, 0, h]  # 修复：使用正确的坐标范围
+        self.viewer.load(image_array=self.base_image)
+        self._viewer_content = self.base_image_path
         self.redraw()
         self.status_vars["image_size"].set(f"底图: {w}×{h}")
-        messagebox.showinfo("成功", "影像底图导入完成")
+        notify(self, f"影像底图导入完成：{os.path.basename(path)}", "success")
 
     def _on_viewer_coord(self, text):
         if "coords" in self.status_vars:
             self.status_vars["coords"].set(text or "")
+
     def redraw(self):
         self.viewer.clear_overlays()
 
-        # base image (only load once, don't reset zoom on redraw)
-        if self.base_image is not None and self.viewer._pil_image is None:
+        if self.base_image is not None and self._viewer_content != self.base_image_path:
             self.viewer.load(image_array=self.base_image)
+            self._viewer_content = self.base_image_path
+        elif self.base_image is None and self.viewer._pil_image is None:
+            self._ensure_blank_workspace()
 
         # vector layers
         for layer in self.layers:
@@ -367,11 +456,9 @@ class VectorTab(ctk.CTkFrame):
                     x, y = g["coordinates"]
                     self.viewer.add_point(x, y, color=clr, radius=6)
                 elif g["type"] == "LineString":
-                    self.viewer.add_polygon(g["coordinates"], color=clr, width=2)
+                    self.viewer.add_line(g["coordinates"], color=clr, width=2)
                 elif g["type"] == "Polygon":
-                    self.viewer.add_polygon(
-                        g["coordinates"][0], color=clr, fill=clr, width=2
-                    )
+                    self.viewer.add_polygon(g["coordinates"][0], color=clr, fill=clr, width=2)
 
         # selected feature
         if self.selected_feature:
@@ -380,33 +467,27 @@ class VectorTab(ctk.CTkFrame):
                 x, y = g["coordinates"]
                 self.viewer.add_point(x, y, color="red", radius=8, label="Selected")
             elif g["type"] == "LineString":
-                self.viewer.add_polygon(
-                    g["coordinates"], color="red", width=3
-                )
+                self.viewer.add_line(g["coordinates"], color="red", width=3)
             elif g["type"] == "Polygon":
-                self.viewer.add_polygon(
-                    g["coordinates"][0], color="red", width=2
-                )
+                self.viewer.add_polygon(g["coordinates"][0], color="red", width=2)
 
         # 顶点编辑模式：显示所有顶点
         if self.edit_mode == "edit_vertices" and self.selected_feature:
             for idx, (vx, vy) in enumerate(self._get_vertices(self.selected_feature)):
-                self.viewer.add_rect(vx-4, vy-4, vx+4, vy+4,
-                                    color="#ffaa00", width=2, label=str(idx))
+                self.viewer.add_rect(
+                    vx - 4, vy - 4, vx + 4, vy + 4, color="#ffaa00", width=2, label=str(idx)
+                )
 
         # temp drawing points + rubber-band
         if self.drawing_points:
             for px, py in self.drawing_points:
                 self.viewer.add_point(px, py, color="red", radius=5)
             if len(self.drawing_points) > 1:
-                self.viewer.add_polygon(
-                    self.drawing_points, color="red", width=1
-                )
+                self.viewer.add_line(self.drawing_points, color="red", width=1)
             # 橡皮筋：最后一点到鼠标位置
             lx, ly = self.drawing_points[-1]
-            self.viewer.add_polygon(
-                [(lx, ly), (self._mouse_x, self._mouse_y)],
-                color="#ff6600", width=1
+            self.viewer.add_line(
+                [(lx, ly), (self._mouse_x, self._mouse_y)], color="#ff6600", width=1
             )
 
         self.viewer.render()
@@ -434,6 +515,7 @@ class VectorTab(ctk.CTkFrame):
         self.layers[self.selected_layer_idx]["features"][
             self.selected_feature_idx
         ] = self.selected_feature
+        invalidate_shapely_cache(self.layers[self.selected_layer_idx], self.selected_feature_idx)
         self.refresh_prop()
 
     def add_field(self):
@@ -496,21 +578,34 @@ class VectorTab(ctk.CTkFrame):
         if self.base_image is not None:
             h = self.base_image.shape[0]
             import copy
+
             layer = copy.deepcopy(layer)
             for f in layer["features"]:
                 g = f["geometry"]
                 if g["type"] == "Point":
                     g["coordinates"][1] = h - g["coordinates"][1]
                 elif g["type"] == "LineString":
-                    g["coordinates"] = [(x, h-y) for x,y in g["coordinates"]]
+                    g["coordinates"] = [(x, h - y) for x, y in g["coordinates"]]
                 elif g["type"] == "Polygon":
                     for ring in g["coordinates"]:
-                        ring[:] = [(x, h-y) for x,y in ring]
+                        ring[:] = [(x, h - y) for x, y in ring]
         if fmt == "shp":
             save_shp(layer, path)
         else:
             save_dwg(layer, path)
-        messagebox.showinfo("成功", f"导出{fmt}完成")
+        record_project_result(
+            self,
+            "vector",
+            "导出矢量文件",
+            inputs=[self.base_image_path, *[lyr.get("path", "") for lyr in self.layers]],
+            outputs=[path],
+            params={"format": fmt},
+            metrics={
+                "layers": len(self.layers),
+                "features": sum(len(lyr.get("features", [])) for lyr in self.layers),
+            },
+        )
+        notify(self, f"导出 {fmt} 完成：{path}", "success")
 
     # ========== 鼠标事件 ==========
     def on_mouse_down(self, px, py, event):
@@ -528,6 +623,8 @@ class VectorTab(ctk.CTkFrame):
                 idx = self._find_nearest_vertex(px, py)
                 if idx is not None:
                     self._vertex_drag_idx = idx
+                    verts = self._get_vertices(self.selected_feature)
+                    self._vertex_old_pos = verts[idx] if 0 <= idx < len(verts) else None
                     self.move_start = (px, py)
                 else:
                     self._select(px, py)
@@ -565,31 +662,62 @@ class VectorTab(ctk.CTkFrame):
             return
 
         # 顶点编辑拖拽
-        if self.edit_mode == "edit_vertices" and self._vertex_drag_idx is not None and self.selected_feature:
+        if (
+            self.edit_mode == "edit_vertices"
+            and self._vertex_drag_idx is not None
+            and self.selected_feature
+        ):
             verts = self._get_vertices(self.selected_feature)
             if 0 <= self._vertex_drag_idx < len(verts):
-                g = self.selected_feature["geometry"]
-                if g["type"] == "Point":
-                    g["coordinates"] = [px, py]
-                elif g["type"] == "LineString":
-                    g["coordinates"][self._vertex_drag_idx] = [px, py]
-                elif g["type"] == "Polygon":
-                    g["coordinates"][0][self._vertex_drag_idx] = [px, py]
-                self.layers[self.selected_layer_idx]["features"][self.selected_feature_idx] = self.selected_feature
+                self._set_vertex_position(self.selected_feature, self._vertex_drag_idx, [px, py])
+                self.layers[self.selected_layer_idx]["features"][
+                    self.selected_feature_idx
+                ] = self.selected_feature
+                invalidate_shapely_cache(
+                    self.layers[self.selected_layer_idx], self.selected_feature_idx
+                )
             self.redraw()
             return
 
         dx, dy = px - self.move_start[0], py - self.move_start[1]
-        self.selected_feature = move_feature(self.selected_feature, dx, dy)
-        self.layers[self.selected_layer_idx]["features"][
+        if dx == 0 and dy == 0:
+            return
+        cmd = MoveFeatureCommand(
+            self.layers[self.selected_layer_idx], self.selected_feature_idx, dx, dy, self.redraw
+        )
+        self.undo_mgr.execute(cmd)
+        self.selected_feature = self.layers[self.selected_layer_idx]["features"][
             self.selected_feature_idx
-        ] = self.selected_feature
+        ]
         self.move_start = (px, py)
         self.redraw()
+
     def on_mouse_up(self, px, py, event):
         if self.edit_mode in ("move", "edit_vertices"):
+            if (
+                self.edit_mode == "edit_vertices"
+                and self._vertex_drag_idx is not None
+                and self._vertex_old_pos is not None
+                and self.selected_layer_idx is not None
+                and self.selected_feature_idx is not None
+            ):
+                verts = self._get_vertices(self.selected_feature)
+                if 0 <= self._vertex_drag_idx < len(verts):
+                    new_pos = verts[self._vertex_drag_idx]
+                    if tuple(self._vertex_old_pos) != tuple(new_pos):
+                        cmd = EditVertexCommand(
+                            self.layers[self.selected_layer_idx],
+                            self.selected_feature_idx,
+                            self._vertex_drag_idx,
+                            self._vertex_old_pos,
+                            new_pos,
+                            self.selected_feature["geometry"]["type"],
+                            self.redraw,
+                        )
+                        self.undo_mgr.record_applied(cmd)
             self.move_start = None
             self._vertex_drag_idx = None
+            self._vertex_old_pos = None
 
     def on_click(self, px, py):
         if self.edit_mode == "draw_line" and len(self.drawing_points) >= 2:
@@ -608,6 +736,21 @@ class VectorTab(ctk.CTkFrame):
             return [tuple(c) for c in g["coordinates"][0]]
         return []
 
+    def _set_vertex_position(self, feature, vertex_idx, pos):
+        g = feature["geometry"]
+        pos = list(pos)
+        if g["type"] == "Point":
+            g["coordinates"] = pos
+        elif g["type"] == "LineString":
+            g["coordinates"][vertex_idx] = pos
+        elif g["type"] == "Polygon":
+            ring = g["coordinates"][0]
+            ring[vertex_idx] = pos
+            if vertex_idx == 0 and len(ring) > 1:
+                ring[-1] = pos.copy()
+            elif vertex_idx == len(ring) - 1 and len(ring) > 1:
+                ring[0] = pos.copy()
+
     def _find_nearest_vertex(self, x, y, tolerance=10):
         """找到选中要素中距离(x,y)最近的顶点索引"""
         if not self.selected_feature:
@@ -615,7 +758,7 @@ class VectorTab(ctk.CTkFrame):
         verts = self._get_vertices(self.selected_feature)
         best_idx, best_dist = None, tolerance
         for i, (vx, vy) in enumerate(verts):
-            d = ((vx - x)**2 + (vy - y)**2) ** 0.5
+            d = ((vx - x) ** 2 + (vy - y) ** 2) ** 0.5
             if d < best_dist:
                 best_dist, best_idx = d, i
         return best_idx
@@ -631,54 +774,50 @@ class VectorTab(ctk.CTkFrame):
             self.status_vars["features"].set("无选中")
 
     def _add_point(self, x, y):
-        if not self.layers:
-            self.layers.append(create_new_layer("点图层", "Point"))
-            self.layers[0]["color"] = DEFAULT_VECTOR_COLOR
-            self.layers[0]["geometry_type"] = "Point"
-            self.refresh_layer_tree()
-        self.layers[0]["features"].append(create_point_feature(x, y))
+        layer_idx, layer = self._ensure_draw_layer("Point", "点图层")
+        layer["features"].append(create_point_feature(x, y))
         self.redraw()
         self.status_vars["features"].set(f"总要素: {sum(len(l['features']) for l in self.layers)}")
+        invalidate_shapely_cache(layer)
 
     def _update_temp(self):
         self.redraw()
 
     def _finish_line(self):
-        if not self.layers:
-            self.layers.append(create_new_layer("线图层", "LineString"))
-            self.layers[0]["color"] = DEFAULT_VECTOR_COLOR
-            self.layers[0]["geometry_type"] = "LineString"
-            self.refresh_layer_tree()
-        self.layers[0]["features"].append(create_line_feature(self.drawing_points))
+        layer_idx, layer = self._ensure_draw_layer("LineString", "线图层")
+        layer["features"].append(create_line_feature(self.drawing_points))
         self.drawing_points = []
         self.clear_temp()
         self.redraw()
         self.status_vars["features"].set(f"总要素: {sum(len(l['features']) for l in self.layers)}")
+        invalidate_shapely_cache(layer)
 
     def _finish_poly(self):
-        if not self.layers:
-            self.layers.append(create_new_layer("面图层", "Polygon"))
-            self.layers[0]["color"] = DEFAULT_VECTOR_COLOR
-            self.layers[0]["geometry_type"] = "Polygon"
-            self.refresh_layer_tree()
-        self.layers[0]["features"].append(create_polygon_feature(self.drawing_points))
+        layer_idx, layer = self._ensure_draw_layer("Polygon", "面图层")
+        layer["features"].append(create_polygon_feature(self.drawing_points))
         self.drawing_points = []
         self.clear_temp()
         self.redraw()
         self.status_vars["features"].set(f"总要素: {sum(len(l['features']) for l in self.layers)}")
+        invalidate_shapely_cache(layer)
 
     @safe_execute
     def delete_selected(self):
-        if self.selected_feature:
-            self.layers[self.selected_layer_idx]["features"].pop(self.selected_feature_idx)
-            # 关键修复：删除要素后重置选中状态
-            self._reset_selection()
-            self.redraw()
-            self.status_vars["features"].set(
-                f"总要素: {sum(len(l['features']) for l in self.layers)}"
-            )
+        if not self.selected_feature or self.selected_layer_idx is None:
+            return
+        cmd = DeleteFeatureCommand(
+            self.layers[self.selected_layer_idx],
+            self.selected_feature_idx,
+            self.selected_feature,
+            self.redraw,
+        )
+        self.undo_mgr.execute(cmd)
+        self._reset_selection()
+        self.redraw()
+        self.status_vars["features"].set(
+            f"Total features: {sum(len(layer['features']) for layer in self.layers)}"
+        )
 
-    @safe_execute
     def clear_all(self):
         if messagebox.askyesno("确认", "清空所有数据？"):
             self.layers = []
@@ -687,12 +826,31 @@ class VectorTab(ctk.CTkFrame):
             self.base_image = None
             self.base_image_extent = None
             self.base_image_path = ""
+            self._viewer_content = ""
+            self.viewer.clear_image()
+            self._ensure_blank_workspace()
             self.refresh_layer_tree()
             self.redraw()
             self.status_vars["image_size"].set("无数据")
             self.status_vars["features"].set("0")
 
     # ========== 项目状态管理 ==========
+
+    def destroy(self):
+        """Clean up resources to prevent memory leaks"""
+        try:
+            import matplotlib.pyplot as plt
+
+            plt.close("all")
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "canvas") and self.canvas:
+                self.canvas = None
+        except Exception:
+            pass
+        super().destroy()
+
     def get_state(self):
         """获取当前标签页状态，用于保存项目"""
         return {
@@ -731,7 +889,7 @@ class VectorTab(ctk.CTkFrame):
                     layer["visible"] = True
                     layer["color"] = DEFAULT_VECTOR_COLOR
                     self.layers.append(layer)
-                except:
+                except Exception:
                     pass
 
         self.refresh_layer_tree()

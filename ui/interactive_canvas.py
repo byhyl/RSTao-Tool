@@ -1,4 +1,5 @@
-﻿"""可漫游放缩的 Matplotlib 画布 — 用于影像显示面板"""
+"""可漫游放缩的 Matplotlib 画布 — 用于影像显示面板"""
+
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
@@ -33,7 +34,7 @@ class InteractiveCanvas:
         self._press_xy = None
 
     def _on_motion(self, event):
-        if self._press_xy is None or event.inaxes is None or event.button != 1:
+        if self._press_xy is None or event.inaxes is None:
             return
         ax = event.inaxes
         dx = self._press_xy[0] - event.xdata

@@ -48,6 +48,8 @@ class ImageMatchingCore:
         """单目标匹配（找最相似）"""
         try:
             logger.info("执行单目标匹配")
+            if template_img is None or search_img is None:
+                raise ValueError("输入图像为空")
             # 灰度转换
             template_gray = cv2.cvtColor(template_img, cv2.COLOR_BGR2GRAY)
             search_gray = cv2.cvtColor(search_img, cv2.COLOR_BGR2GRAY)
@@ -87,6 +89,8 @@ class ImageMatchingCore:
         """单目标多匹配（找所有相似）"""
         try:
             logger.info("执行单目标多匹配")
+            if template_img is None or search_img is None:
+                raise ValueError("输入图像为空")
             template_gray = cv2.cvtColor(template_img, cv2.COLOR_BGR2GRAY)
             search_gray = cv2.cvtColor(search_img, cv2.COLOR_BGR2GRAY)
 
@@ -120,6 +124,17 @@ class ImageMatchingCore:
                 "correlation_map": result,
                 "boxes": [boxes[i] for i in keep_indices],
                 "scores": [scores[i] for i in keep_indices],
+                "matches": [
+                    {
+                        "box": boxes[i],
+                        "score": float(scores[i]),
+                        "center_point": (
+                            (boxes[i][0] + boxes[i][2]) // 2,
+                            (boxes[i][1] + boxes[i][3]) // 2,
+                        ),
+                    }
+                    for i in keep_indices
+                ],
                 "threshold": threshold,
                 "nms_threshold": nms_threshold,
                 "total_count": len(keep_indices),

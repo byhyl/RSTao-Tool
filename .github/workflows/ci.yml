@@ -1,4 +1,4 @@
-﻿name: CI
+name: CI
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        python-version: ["3.10"]
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
@@ -25,45 +25,20 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-cov black isort pyinstaller
+          pip install -e ".[dev,geo,ml]"
 
       - name: Check formatting
         run: |
-          black --check --diff --line-length 100 --exclude "_admin_repo|tests|server" .
-          isort --check-only --diff --profile black --skip _admin_repo --skip tests --skip server .
-        continue-on-error: true
+          black --check --diff --line-length 100 --exclude "_admin_repo|tests|server|build|dist" .
+          isort --check-only --diff --profile black --skip _admin_repo --skip tests --skip server --skip build --skip dist .
 
-      - name: Run tests
+      - name: Run tests with coverage
         run: |
           mkdir logs -Force
-          pytest tests/ -v --tb=short
+          pytest tests/ -v --tb=short --cov=. --cov-report=term-missing --cov-report=xml
 
-  build:
-    needs: test
-    runs-on: windows-latest
-    if: github.event_name != 'pull_request'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
-
-      - name: Build EXE
-        run: |
-          pyinstaller --onefile --windowed --collect-data customtkinter --hidden-import wmi --hidden-import pythoncom --hidden-import matplotlib.backends.backend_tkagg --hidden-import shapely --hidden-import fiona --hidden-import pyproj --hidden-import onnxruntime --name RSTao-Tool --icon assets/icon.ico --add-data "i18n;i18n" --add-data "assets;assets" main.py
-
-      - name: Upload artifact
+      - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
-          name: RSTao-Tool
-          path: dist/RSTao-Tool.exe
+          name: coverage-${{ matrix.python-version }}
+          path: coverage.xml

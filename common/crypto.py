@@ -1,4 +1,4 @@
-﻿# common/crypto.py
+# common/crypto.py
 """
 安全加密模块 - AES-256-GCM 加解密 + 密钥派生
 版本：2.1 - 商业化安全加固（固定盐值）
@@ -22,12 +22,42 @@ _GCM_NONCE_LENGTH = 12
 _GCM_TAG_LENGTH = 16
 
 # 固定盐值（32 字节）—— 确保 admin 和 client 永远使用相同的密钥派生
-_BUILTIN_SALT = bytes([
-    0xA3, 0x7F, 0x2C, 0x91, 0x4E, 0xB8, 0xDD, 0x06,
-    0x15, 0x3A, 0x6F, 0xC4, 0x82, 0x1D, 0x59, 0xE7,
-    0x30, 0x8B, 0x4F, 0xA2, 0x7E, 0xCD, 0x11, 0xF5,
-    0x98, 0x26, 0x0A, 0x6B, 0xD3, 0x44, 0x1E, 0x9C,
-])
+_BUILTIN_SALT = bytes(
+    [
+        0xA3,
+        0x7F,
+        0x2C,
+        0x91,
+        0x4E,
+        0xB8,
+        0xDD,
+        0x06,
+        0x15,
+        0x3A,
+        0x6F,
+        0xC4,
+        0x82,
+        0x1D,
+        0x59,
+        0xE7,
+        0x30,
+        0x8B,
+        0x4F,
+        0xA2,
+        0x7E,
+        0xCD,
+        0x11,
+        0xF5,
+        0x98,
+        0x26,
+        0x0A,
+        0x6B,
+        0xD3,
+        0x44,
+        0x1E,
+        0x9C,
+    ]
+)
 
 
 def _derive_master_key(machine_code: str = "") -> bytes:
@@ -44,7 +74,11 @@ def _derive_master_key(machine_code: str = "") -> bytes:
     ]
     combined = b"".join(seeds) + machine_code.encode("utf-8")
     key = PBKDF2(
-        combined, _BUILTIN_SALT, dkLen=_KEY_LENGTH, count=_PBKDF2_ITERATIONS, hmac_hash_module=SHA256
+        combined,
+        _BUILTIN_SALT,
+        dkLen=_KEY_LENGTH,
+        count=_PBKDF2_ITERATIONS,
+        hmac_hash_module=SHA256,
     )
     return key
 

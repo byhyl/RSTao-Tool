@@ -1,10 +1,13 @@
 """AES-256-GCM 加密模块测试"""
+
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
-from common.crypto import aes_gcm_encrypt, aes_gcm_decrypt, generate_machine_code_hash
+
+from common.crypto import aes_gcm_decrypt, aes_gcm_encrypt, generate_machine_code_hash
 
 
 class TestAESGCM:

@@ -11,7 +11,7 @@ APP_AUTHOR = "RSTao"
 APP_COPYRIGHT = "© 2026 RSTao 保留所有权利"
 
 # ====================== 路径配置 ======================
-ICON_PATH = BASE_DIR / "favicon.ico"
+ICON_PATH = BASE_DIR / "assets" / "icon.ico"
 LOG_DIR = BASE_DIR / "logs"
 TEMP_DIR = BASE_DIR / "temp"
 

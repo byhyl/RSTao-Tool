@@ -1,21 +1,36 @@
-# core/project_manager.py
+"""Project file management."""
+
+from __future__ import annotations
+
 import json
 import os
-import time
+import shutil
+import threading
 from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+from common.logger import logger
+from core.result_history import make_result_record
+
+SCHEMA_VERSION = 2
 
 
 class ProjectManager:
-    """项目文件管理器，负责项目的创建、保存、加载和最近项目记录"""
+    """Create, save, load, and recover RSTao project files."""
 
     def __init__(self):
         self.current_project = None
-        self.project_path = None
+        self.project_path: Optional[str] = None
         self.recent_projects = self._load_recent_projects()
-        self.max_recent = 10  # 最多保存10个最近项目
+        self.max_recent = 10
+        self._auto_save_timer = None
+        self._auto_save_interval = 180
+        self._dirty = False
+        self._auto_save_enabled = True
+        self._save_lock = threading.Lock()
 
     def _load_recent_projects(self):
-        """从配置文件加载最近项目列表"""
         config_path = os.path.join(os.path.expanduser("~"), ".rstao_config")
         if os.path.exists(config_path):
             try:
@@ -23,42 +38,42 @@ class ProjectManager:
                     config = json.load(f)
                     return config.get("recent_projects", [])
             except (json.JSONDecodeError, OSError):
-                pass  # 配置文件损坏时使用空列表
+                pass
         return []
 
     def _save_recent_projects(self):
-        """保存最近项目列表到配置文件"""
         config_path = os.path.join(os.path.expanduser("~"), ".rstao_config")
         config = {"recent_projects": self.recent_projects}
         try:
             with open(config_path, "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
-        except:
+        except Exception:
             pass
 
     def add_recent_project(self, path):
-        """添加项目到最近列表"""
-        # 移除已存在的相同路径
         if path in self.recent_projects:
             self.recent_projects.remove(path)
-        # 添加到开头
         self.recent_projects.insert(0, path)
-        # 限制数量
         if len(self.recent_projects) > self.max_recent:
             self.recent_projects = self.recent_projects[: self.max_recent]
-        # 保存
         self._save_recent_projects()
 
     def new_project(self, name, save_path):
-        """创建新项目"""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.current_project = {
+            "schema_version": SCHEMA_VERSION,
             "project_name": name,
-            "created_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "modified_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "created_time": now,
+            "modified_time": now,
             "current_tab": "特征检测",
             "feature_tab": {},
             "match_tab": {},
             "vector_tab": {},
+            "coordinate_tab": {},
+            "detection_tab": {},
+            "settings_tab": {},
+            "result_history": [],
+            "task_history": [],
         }
         self.project_path = save_path
         self.save_project()
@@ -66,50 +81,185 @@ class ProjectManager:
         return True
 
     def save_project(
-        self, feature_state=None, match_state=None, vector_state=None, current_tab=None
+        self,
+        feature_state=None,
+        match_state=None,
+        vector_state=None,
+        current_tab=None,
+        coordinate_state=None,
+        detection_state=None,
+        settings_state=None,
+        autosave: bool = False,
     ):
-        """保存项目"""
         if not self.current_project or not self.project_path:
             return False
 
-        # 更新修改时间
         self.current_project["modified_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # 更新各个标签页状态
-        if feature_state:
+        self.current_project.setdefault("schema_version", SCHEMA_VERSION)
+        if feature_state is not None:
             self.current_project["feature_tab"] = feature_state
-        if match_state:
+        if match_state is not None:
             self.current_project["match_tab"] = match_state
-        if vector_state:
+        if vector_state is not None:
             self.current_project["vector_tab"] = vector_state
+        if coordinate_state is not None:
+            self.current_project["coordinate_tab"] = coordinate_state
+        if detection_state is not None:
+            self.current_project["detection_tab"] = detection_state
+        if settings_state is not None:
+            self.current_project["settings_tab"] = settings_state
         if current_tab:
             self.current_project["current_tab"] = current_tab
 
-        # 写入文件
+        target = self.get_autosave_path(self.project_path) if autosave else Path(self.project_path)
         try:
-            with open(self.project_path, "w", encoding="utf-8") as f:
-                json.dump(self.current_project, f, ensure_ascii=False, indent=2)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if not autosave:
+                self._backup_project_file(Path(self.project_path))
+            self._atomic_write_json(target, self.current_project)
+            if not autosave:
+                self.discard_autosave(self.project_path)
+                self._dirty = False
             return True
         except Exception as e:
-            print(f"保存项目失败: {e}")
+            logger.error(f"保存项目失败: {e}", exc_info=True)
             return False
 
     def load_project(self, path):
-        """加载项目"""
         if not os.path.exists(path):
             return False
 
         try:
             with open(path, "r", encoding="utf-8") as f:
                 self.current_project = json.load(f)
+            self._migrate_project()
             self.project_path = path
             self.add_recent_project(path)
             return self.current_project
         except Exception as e:
-            print(f"加载项目失败: {e}")
+            logger.error(f"加载项目失败: {e}", exc_info=True)
             return False
 
+    def _migrate_project(self):
+        if not self.current_project:
+            return
+        self.current_project.setdefault("schema_version", SCHEMA_VERSION)
+        self.current_project.setdefault("feature_tab", {})
+        self.current_project.setdefault("match_tab", {})
+        self.current_project.setdefault("vector_tab", {})
+        self.current_project.setdefault("coordinate_tab", {})
+        self.current_project.setdefault("detection_tab", {})
+        self.current_project.setdefault("settings_tab", {})
+        self.current_project.setdefault("result_history", [])
+        self.current_project.setdefault("task_history", [])
+
+    def add_result_record(self, category: str, title: str, **kwargs):
+        if not self.current_project:
+            return None
+        record = make_result_record(category, title, **kwargs)
+        history = self.current_project.setdefault("result_history", [])
+        history.insert(0, record)
+        del history[100:]
+        self.mark_dirty()
+        return record
+
+    def add_task_record(self, title: str, **kwargs):
+        if not self.current_project:
+            return None
+        record = make_result_record("task", title, **kwargs)
+        history = self.current_project.setdefault("task_history", [])
+        history.insert(0, record)
+        del history[100:]
+        self.mark_dirty()
+        return record
+
     def close_project(self):
-        """关闭当前项目"""
+        self._stop_auto_save()
         self.current_project = None
         self.project_path = None
+        self._dirty = False
+
+    # ====================== Auto-Save ======================
+    def set_auto_save(self, enabled: bool = True, interval: int = 180):
+        self._auto_save_enabled = enabled
+        self._auto_save_interval = interval
+        if enabled and self.project_path:
+            self._start_auto_save()
+
+    def _start_auto_save(self):
+        self._stop_auto_save()
+        if not self._auto_save_enabled:
+            return
+        self._auto_save_timer = threading.Timer(self._auto_save_interval, self._auto_save_tick)
+        self._auto_save_timer.daemon = True
+        self._auto_save_timer.start()
+
+    def _stop_auto_save(self):
+        if self._auto_save_timer:
+            self._auto_save_timer.cancel()
+            self._auto_save_timer = None
+
+    def _auto_save_tick(self):
+        with self._save_lock:
+            if self._dirty and self.current_project and self.project_path:
+                self.save_project(autosave=True)
+        self._start_auto_save()
+
+    def mark_dirty(self):
+        self._dirty = True
+
+    # ====================== Crash Recovery ======================
+    @staticmethod
+    def get_autosave_path(project_path: str | Path) -> Path:
+        project = Path(project_path)
+        return project.with_name(project.name + ".autosave")
+
+    @staticmethod
+    def get_backup_path(project_path: str | Path) -> Path:
+        project = Path(project_path)
+        return project.with_name(project.name + ".bak")
+
+    def check_backup(self, project_path: str) -> bool:
+        project = Path(project_path)
+        autosave = self.get_autosave_path(project)
+        return autosave.exists() and (
+            not project.exists() or autosave.stat().st_mtime > project.stat().st_mtime
+        )
+
+    def recover_from_backup(self, project_path: str) -> bool:
+        autosave = self.get_autosave_path(project_path)
+        if not autosave.exists():
+            return False
+        try:
+            shutil.copy2(str(autosave), project_path)
+            self.discard_autosave(project_path)
+            return self.load_project(project_path) is not False
+        except Exception as e:
+            logger.error(f"恢复自动保存失败: {e}", exc_info=True)
+            return False
+
+    def discard_autosave(self, project_path: str | Path):
+        autosave = self.get_autosave_path(project_path)
+        try:
+            if autosave.exists():
+                autosave.unlink()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _atomic_write_json(path: Path, payload: dict):
+        tmp = path.with_name(path.name + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+
+    def _backup_project_file(self, project_path: Path):
+        if not project_path.exists():
+            return
+        backup_path = self.get_backup_path(project_path)
+        try:
+            shutil.copy2(project_path, backup_path)
+        except Exception as e:
+            logger.warning(f"创建项目备份失败: {e}")

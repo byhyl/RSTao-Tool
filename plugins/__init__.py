@@ -1,3 +1,2 @@
-# RSTao-Tool ²å¼şÄ¿Â¼
-# ÔÚ´ËÄ¿Â¼ÏÂ´´½¨²å¼ş×ÓÎÄ¼ş¼Ğ
-
+ï»¿# RSTao-Tool plugin package
+# Create plugin subdirectories here. Each plugin should provide plugin.json.

@@ -1,4 +1,5 @@
-﻿"""报告生成器 — 一键导出 HTML/PDF 精度报告"""
+"""报告生成器 — 一键导出 HTML/PDF 精度报告"""
+
 import base64
 import io
 import os
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -23,6 +25,7 @@ plt.rcParams["axes.unicode_minus"] = False
 @dataclass
 class MatchStats:
     """匹配精度统计"""
+
     total_pairs: int = 0
     successful_pairs: int = 0
     mean_score: float = 0.0
@@ -46,6 +49,7 @@ class MatchStats:
 @dataclass
 class FeatureStats:
     """特征检测统计"""
+
     image_count: int = 0
     total_features: int = 0
     mean_features: float = 0.0
@@ -100,7 +104,12 @@ class ReportGenerator:
         # 直方图: 匹配分数分布
         if stats.scores:
             ax1.hist(stats.scores, bins=20, color="#6366f1", edgecolor="white", alpha=0.85)
-            ax1.axvline(stats.mean_score, color="#ef4444", linestyle="--", label=f'均值={stats.mean_score:.3f}')
+            ax1.axvline(
+                stats.mean_score,
+                color="#ef4444",
+                linestyle="--",
+                label=f"均值={stats.mean_score:.3f}",
+            )
             ax1.set_title("匹配分数分布")
             ax1.set_xlabel("相关系数")
             ax1.set_ylabel("频数")
@@ -130,8 +139,12 @@ class ReportGenerator:
         if stats.feature_counts:
             indices = range(len(stats.feature_counts))
             ax.bar(indices, stats.feature_counts, color="#6366f1", alpha=0.85)
-            ax.axhline(stats.mean_features, color="#ef4444", linestyle="--",
-                      label=f"均值={stats.mean_features:.0f}")
+            ax.axhline(
+                stats.mean_features,
+                color="#ef4444",
+                linestyle="--",
+                label=f"均值={stats.mean_features:.0f}",
+            )
             ax.set_title("特征点数量分布")
             ax.set_xlabel("影像序号")
             ax.set_ylabel("特征点数量")
@@ -144,8 +157,14 @@ class ReportGenerator:
         charts["feature_distribution"] = base64.b64encode(buf.getvalue()).decode()
         return charts
 
-    def _build_html(self, title: str, subtitle: str, stats, charts: Dict[str, str],
-                    extra_info: Dict[str, str] = None) -> str:
+    def _build_html(
+        self,
+        title: str,
+        subtitle: str,
+        stats,
+        charts: Dict[str, str],
+        extra_info: Dict[str, str] = None,
+    ) -> str:
         """构建带图表的 HTML 报告"""
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 

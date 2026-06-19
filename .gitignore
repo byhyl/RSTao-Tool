@@ -1,53 +1,52 @@
-# Python
+# Python caches/build output
 __pycache__/
 *.py[cod]
 *.pyo
 *.egg-info/
-dist/
-build/
 *.egg
+build/
+dist/
+.pytest_cache/
+.coverage
+coverage.xml
 
-# 鐜
+# Virtual environments and local env files
 venv/
+.venv/
 .env
 
-# 鎺堟潈/瀹夊叏鏁忔劅鏂囦欢
+# Runtime authorization and private key material
 .license.dat
 .salt.dat
+.rstao_trial
+.rstao_ts
+.rstao_private_key*.pem
+admin_license_private*.pem
+
+# Logs and runtime data
 *.log
 auth.log
 rstao_tool.log
-
-# 鏁版嵁搴?
-server/activation.db
-
-# IDE
-.vscode/settings.json
-.idea/
-
-# 涓存椂鏂囦欢
-*.tmp
-*.temp
-# 鎵撳寘浜х墿
-*.exe
-dist/
-build/
-# 绠＄悊鍛橀厤缃紙鍚护鐗岋紝鍒囧嬁鎻愪氦锛?
-.admin_config.json
-
-# 绠＄悊绔枃浠讹紙涓嶉殢瀹㈡埛绔垎鍙戯級
-admin_tool.py
-server/
-key_generator.py
-
-# 绠＄悊绔枃浠讹紙涓嶉殢瀹㈡埛绔垎鍙戯級
-admin_tool.py
-server/
-key_generator.py
-
 logs/
 temp/
-.pytest_cache/
+*.tmp
+*.temp
+*.bak
+*.autosave
+*.autosave.rstao
+_tmp_*.txt
 
+# Local/private admin files
+.admin_config.json
+key_generator.py
+server/*.db
+
+# IDE and local assistant state
+.vscode/settings.json
+.idea/
+.claude/
+
+# External/admin repositories and installers
 _admin_repo/
 installer/*.exe
+*.exe

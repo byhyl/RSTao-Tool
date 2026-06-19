@@ -1,4 +1,5 @@
-﻿"""插件管理器 — 可扩展的插件系统"""
+"""插件管理器 — 可扩展的插件系统"""
+
 import importlib
 import json
 import os
@@ -10,12 +11,13 @@ from typing import Any, Callable, Dict, List, Optional, Type
 
 from common.logger import logger
 
-
 # ====================== 插件接口定义 ======================
+
 
 @dataclass
 class PluginInfo:
     """插件元信息"""
+
     id: str
     name: str
     version: str = "1.0.0"
@@ -58,11 +60,14 @@ class BasePlugin(ABC):
 
 # ====================== 插件管理器 ======================
 
+
 class PluginManager:
     """插件管理器 — 发现、加载、卸载插件"""
 
     def __init__(self, plugins_dir: str = ""):
-        self.plugins_dir = Path(plugins_dir) if plugins_dir else Path(__file__).parent.parent / "plugins"
+        self.plugins_dir = (
+            Path(plugins_dir) if plugins_dir else Path(__file__).parent.parent / "plugins"
+        )
         self._plugins: Dict[str, BasePlugin] = {}
         self._hooks: Dict[str, List[Callable]] = {}
         self._context: Dict[str, Any] = {}
@@ -171,14 +176,17 @@ class PluginManager:
                 "#   plugins/my_plugin/\n"
                 "#     plugin.json\n"
                 "#     __init__.py\n"
-                "#     my_plugin.py\n"
+                "#     my_plugin.py\n",
+                encoding="utf-8",
             )
 
 
 # ====================== 示例插件（模板） ======================
 
+
 class ExamplePlugin(BasePlugin):
     """示例插件 — 供开发者参考"""
+
     def info(self) -> PluginInfo:
         return PluginInfo(
             id="example",

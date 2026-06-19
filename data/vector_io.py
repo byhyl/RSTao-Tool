@@ -67,6 +67,20 @@ def save_dwg(data, file_path):
                 pts = [(p[0], p[1]) for p in geom["coordinates"][0]]
                 msp.add_lwpolyline(pts, dxfattribs={"layer": layer_name, "closed": True})
 
+            elif geom["type"] == "MultiPoint":
+                for pt in geom["coordinates"]:
+                    msp.add_point((pt[0], pt[1]), dxfattribs={"layer": layer_name})
+
+            elif geom["type"] == "MultiLineString":
+                for line in geom["coordinates"]:
+                    pts = [(p[0], p[1]) for p in line]
+                    msp.add_lwpolyline(pts, dxfattribs={"layer": layer_name})
+
+            elif geom["type"] == "MultiPolygon":
+                for poly in geom["coordinates"]:
+                    pts = [(p[0], p[1]) for p in poly[0]]
+                    msp.add_lwpolyline(pts, dxfattribs={"layer": layer_name, "closed": True})
+
         doc.saveas(file_path)
         return True
     except Exception as e:

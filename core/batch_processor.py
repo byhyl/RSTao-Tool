@@ -1,25 +1,30 @@
-﻿"""批量处理引擎 — 支持批量特征检测、批量影像匹配"""
+"""批量处理引擎 — 支持批量特征检测、批量影像匹配"""
+
+import csv
+import json
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
 
-from common.logger import logger
 from common import utils
+from common.logger import logger
 
 
 @dataclass
 class BatchTask:
     """单个批处理任务"""
+
     input_path: str
     output_dir: str
     params: Dict = field(default_factory=dict)
-    status: str = "pending"  # pending / running / done / failed
+    status: str = "pending"  # pending / running / done / skipped / failed
     result: Optional[str] = None
     error: str = ""
     duration: float = 0.0
@@ -28,8 +33,10 @@ class BatchTask:
 @dataclass
 class BatchResult:
     """批处理结果汇总"""
+
     total: int = 0
     success: int = 0
+    skipped: int = 0
     failed: int = 0
     tasks: List[BatchTask] = field(default_factory=list)
     start_time: float = 0.0
@@ -61,19 +68,24 @@ class BatchProcessor:
         if self._progress_callback:
             self._progress_callback(current, total, message)
 
-    def collect_images(self, input_dir: str, recursive: bool = False) -> List[str]:
-        """收集目录下所有支持的影像文件"""
-        images = []
+    def iter_images(self, input_dir, recursive=False):
+        """Generator: yield supported image files one by one"""
         base = Path(input_dir)
         if not base.exists():
-            return images
-
+            return
         pattern = "**/*" if recursive else "*"
-        for ext in self.SUPPORTED_FORMATS:
-            for p in base.glob(pattern):
-                if p.suffix.lower() == ext:
-                    images.append(str(p))
-        return sorted(images)  # 可限制数量
+        for p in base.glob(pattern):
+            if p.is_file() and p.suffix.lower() in self.SUPPORTED_FORMATS:
+                yield str(p)
+
+    def collect_images(self, input_dir, recursive=False, limit=0):
+        """Collect supported images (with optional limit)"""
+        images = []
+        for path in self.iter_images(input_dir, recursive):
+            images.append(path)
+            if limit > 0 and len(images) >= limit:
+                break
+        return sorted(images)
 
     def batch_feature_detect(
         self,
@@ -82,6 +94,7 @@ class BatchProcessor:
         harris_k: float = 0.04,
         threshold: float = 0.01,
         recursive: bool = False,
+        skip_existing: bool = False,
     ) -> BatchResult:
         """批量特征检测"""
         images = self.collect_images(input_dir, recursive)
@@ -93,10 +106,21 @@ class BatchProcessor:
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
         def process_one(img_path: str) -> BatchTask:
-            task = BatchTask(input_path=img_path, output_dir=output_dir,
-                           params={"harris_k": harris_k, "threshold": threshold})
+            task = BatchTask(
+                input_path=img_path,
+                output_dir=output_dir,
+                params={"harris_k": harris_k, "threshold": threshold},
+            )
+            started = time.time()
             try:
                 task.status = "running"
+                name = Path(img_path).stem
+                out_path = os.path.join(output_dir, f"{name}_features.csv")
+                if skip_existing and os.path.exists(out_path):
+                    task.result = out_path
+                    task.status = "skipped"
+                    return task
+
                 gray = utils.imread_chinese(img_path, cv2.IMREAD_GRAYSCALE)
                 if gray is None:
                     raise ValueError(f"无法读取影像: {img_path}")
@@ -107,16 +131,15 @@ class BatchProcessor:
                 keypoints = np.argwhere(dst > threshold * dst.max())
 
                 # 保存结果
-                name = Path(img_path).stem
-                out_path = os.path.join(output_dir, f"{name}_features.csv")
-                np.savetxt(out_path, keypoints, fmt="%d", delimiter=",",
-                          header="y,x", comments="")
+                np.savetxt(out_path, keypoints, fmt="%d", delimiter=",", header="y,x", comments="")
                 task.result = out_path
                 task.status = "done"
             except Exception as e:
                 task.status = "failed"
                 task.error = str(e)
                 logger.error(f"批量特征检测失败 [{img_path}]: {e}")
+            finally:
+                task.duration = time.time() - started
             return task
 
         return self._execute_batch(images, process_one, result)
@@ -129,6 +152,7 @@ class BatchProcessor:
         method: int = cv2.TM_CCOEFF_NORMED,
         threshold: float = 0.8,
         recursive: bool = False,
+        skip_existing: bool = False,
     ) -> BatchResult:
         """批量影像匹配（模板匹配）"""
         template = utils.imread_chinese(template_path)
@@ -143,10 +167,21 @@ class BatchProcessor:
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
         def process_one(img_path: str) -> BatchTask:
-            task = BatchTask(input_path=img_path, output_dir=output_dir,
-                           params={"method": method, "threshold": threshold})
+            task = BatchTask(
+                input_path=img_path,
+                output_dir=output_dir,
+                params={"method": method, "threshold": threshold},
+            )
+            started = time.time()
             try:
                 task.status = "running"
+                name = Path(img_path).stem
+                out_path = os.path.join(output_dir, f"{name}_matched.png")
+                if skip_existing and os.path.exists(out_path):
+                    task.result = out_path
+                    task.status = "skipped"
+                    return task
+
                 img = utils.imread_chinese(img_path)
                 if img is None:
                     raise ValueError(f"无法读取影像: {img_path}")
@@ -169,8 +204,6 @@ class BatchProcessor:
                     result_img = img.copy()
                     cv2.rectangle(result_img, top_left, bottom_right, (0, 255, 0), 2)
 
-                    name = Path(img_path).stem
-                    out_path = os.path.join(output_dir, f"{name}_matched.png")
                     utils.imwrite_chinese(out_path, result_img)
                     task.result = out_path
                     task.status = "done"
@@ -180,13 +213,18 @@ class BatchProcessor:
             except Exception as e:
                 task.status = "failed"
                 task.error = str(e)
+            finally:
+                task.duration = time.time() - started
             return task
 
         return self._execute_batch(images, process_one, result, "batch_match")
 
     def _execute_batch(
-        self, images: List[str], worker: Callable[[str], BatchTask],
-        result: BatchResult, task_type: str = "batch"
+        self,
+        images: List[str],
+        worker: Callable[[str], BatchTask],
+        result: BatchResult,
+        task_type: str = "batch",
     ) -> BatchResult:
         """执行批量任务"""
         total = len(images)
@@ -197,16 +235,65 @@ class BatchProcessor:
                 result.tasks.append(task)
                 if task.status == "done":
                     result.success += 1
+                elif task.status == "skipped":
+                    result.skipped += 1
                 else:
                     result.failed += 1
                 self._report_progress(
-                    result.success + result.failed, total,
-                    f"{task_type}: {Path(task.input_path).name}"
+                    result.success + result.failed + result.skipped,
+                    total,
+                    f"{task_type}: {Path(task.input_path).name}",
                 )
 
         result.end_time = time.time()
         logger.info(
             f"批量处理完成: {total} 个任务, 成功 {result.success}, "
-            f"失败 {result.failed}, 耗时 {result.elapsed:.1f}s"
+            f"跳过 {result.skipped}, 失败 {result.failed}, 耗时 {result.elapsed:.1f}s"
         )
         return result
+
+    def export_summary(
+        self,
+        result: BatchResult,
+        output_dir: str,
+        filename_prefix: str = "summary",
+    ) -> Dict[str, str]:
+        """Export machine-readable JSON/CSV summaries for a batch result."""
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        safe_prefix = filename_prefix.strip() or "summary"
+        json_path = os.path.join(output_dir, f"{safe_prefix}.json")
+        csv_path = os.path.join(output_dir, f"{safe_prefix}.csv")
+
+        payload = {
+            "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "total": result.total,
+            "success": result.success,
+            "skipped": result.skipped,
+            "failed": result.failed,
+            "elapsed": result.elapsed,
+            "success_rate": result.success_rate,
+            "tasks": [asdict(task) for task in result.tasks],
+        }
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+
+        with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "input_path",
+                    "output_dir",
+                    "status",
+                    "result",
+                    "error",
+                    "duration",
+                    "params",
+                ],
+            )
+            writer.writeheader()
+            for task in result.tasks:
+                row = asdict(task)
+                row["params"] = json.dumps(row.get("params", {}), ensure_ascii=False)
+                writer.writerow(row)
+
+        return {"json": json_path, "csv": csv_path}

@@ -1,6 +1,7 @@
-﻿from common import utils
 import cv2
 import numpy as np
+
+from common import utils
 
 
 class FeatureDetection:
@@ -34,13 +35,25 @@ class FeatureDetection:
 
     def moravec_detect(self, gray, threshold):
         gray_f = gray.astype(np.float32)
+        h, w = gray_f.shape
         shifts = [(1, 0), (0, 1), (1, 1), (-1, 1)]
         diffs = []
         for dx, dy in shifts:
-            rolled = np.roll(gray_f, (dy, dx), axis=(0, 1))
-            diffs.append(np.square(gray_f - rolled))
+            shifted = np.zeros_like(gray_f)
+            if dx >= 0 and dy >= 0:
+                shifted[dy:, dx:] = gray_f[: h - dy, : w - dx]
+            elif dx < 0 and dy >= 0:
+                shifted[dy:, : w + dx] = gray_f[: h - dy, -dx:]
+            elif dx >= 0 and dy < 0:
+                shifted[: h + dy, dx:] = gray_f[-dy:, : w - dx]
+            else:
+                shifted[: h + dy, : w + dx] = gray_f[-dy:, -dx:]
+            diffs.append(np.square(gray_f - shifted))
         min_diff = np.min(diffs, axis=0)
-        mask = min_diff > threshold * min_diff.max()
+        if min_diff.max() > 0:
+            mask = min_diff > threshold * min_diff.max()
+        else:
+            mask = np.zeros_like(min_diff, dtype=bool)
         return mask, int(np.sum(mask))
 
     def forstner_detect(self, gray, threshold):

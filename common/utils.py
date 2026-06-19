@@ -1,4 +1,4 @@
-﻿import os
+import os
 import threading
 
 import cv2
@@ -44,7 +44,13 @@ def run_in_background(func):
     """后台执行装饰器，不阻塞UI"""
 
     def wrapper(*args, **kwargs):
-        thread = threading.Thread(target=func, args=args, kwargs=kwargs)
+        def _run():
+            try:
+                func(*args, **kwargs)
+            except Exception as e:
+                logger.error(f"后台任务异常: {str(e)}", exc_info=True)
+
+        thread = threading.Thread(target=_run)
         thread.daemon = True
         thread.start()
 
@@ -54,7 +60,11 @@ def run_in_background(func):
 def normalize_image(image):
     """将影像归一化到0-255"""
     if image.dtype != np.uint8:
-        image = ((image - image.min()) / (image.max() - image.min()) * 255).astype(np.uint8)
+        img_min, img_max = image.min(), image.max()
+        if img_max > img_min:
+            image = ((image - img_min) / (img_max - img_min) * 255).astype(np.uint8)
+        else:
+            image = np.zeros_like(image, dtype=np.uint8)
     return image
 
 
@@ -70,7 +80,8 @@ def put_chinese_text(img, text, position, font_size, color):
     try:
         font = ImageFont.truetype("simhei.ttf", font_size)
     except Exception as e:
-        logger.debug(f'字体加载降级: {e}'); font = ImageFont.load_default()
+        logger.debug(f"字体加载降级: {e}")
+        font = ImageFont.load_default()
 
     draw.text(position, text, font=font, fill=color)
     return cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
@@ -123,26 +134,27 @@ def imread_chinese(path, flags=cv2.IMREAD_COLOR):
     if not path or not os.path.exists(path):
         return None
     try:
-        with open(path, 'rb') as f:
+        with open(path, "rb") as f:
             data = np.frombuffer(f.read(), dtype=np.uint8)
         img = cv2.imdecode(data, flags)
         if img is None:
-            raise ValueError(f'无法读取图像: {path}')
+            raise ValueError(f"无法读取图像: {path}")
         return img
     except Exception as e:
-        logger.error(f'读取图像失败 [{path}]: {e}')
+        logger.error(f"读取图像失败 [{path}]: {e}")
         raise
+
 
 def imwrite_chinese(path, img, params=None):
     """支持中文路径的cv2.imwrite替代函数"""
     try:
         ext = os.path.splitext(path)[1].lower()
         if not ext:
-            ext = '.png'
+            ext = ".png"
         _, buf = cv2.imencode(ext, img, params or [])
-        with open(path, 'wb') as f:
+        with open(path, "wb") as f:
             f.write(buf)
         return True
     except Exception as e:
-        logger.error(f'写入图像失败 [{path}]: {e}')
+        logger.error(f"写入图像失败 [{path}]: {e}")
         return False

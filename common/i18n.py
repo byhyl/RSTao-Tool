@@ -1,4 +1,5 @@
 """国际化模块 - JSON 驱动的轻量级 i18n"""
+
 import json
 from pathlib import Path
 
@@ -11,6 +12,8 @@ def load_language(lang: str = "zh") -> dict:
     """加载语言包"""
     global _current_lang
     _current_lang = lang
+    if lang in _cache:
+        return _cache[lang]
     path = _I18N_DIR / f"{lang}.json"
     if not path.exists():
         path = _I18N_DIR / "zh.json"
