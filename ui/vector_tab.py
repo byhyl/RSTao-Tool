@@ -10,7 +10,8 @@ from common import utils
 from common.config import DEFAULT_VECTOR_COLOR, SELECTED_COLOR
 from common.logger import logger
 from common.utils import safe_execute, set_chinese_font
-from core import (
+from core.spatial_reference import pixel_to_map, read_raster_spatial_ref
+from core.vector_processing import (
     add_property_field,
     batch_update_properties,
     create_line_feature,
@@ -23,8 +24,7 @@ from core import (
     select_feature,
     update_feature_property,
 )
-from core.spatial_reference import pixel_to_map, read_raster_spatial_ref
-from data import read_shp, save_dwg, save_shp
+from data.vector_io import read_shp, save_dwg, save_shp
 
 from .error_dialog import show_actionable_error
 from .import_preview_dialog import confirm_import

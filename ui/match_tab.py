@@ -10,7 +10,7 @@ import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 
-from core import ImageMatchingCore
+from core.image_matching import ImageMatchingCore
 from data.image_io import get_image_metadata, save_geotiff_like
 
 from .raster_viewer import RasterViewer
