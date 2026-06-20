@@ -6,6 +6,9 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -62,10 +65,19 @@ jobs:
           }
           & $iscc installer\setup.iss
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: RSTao-Tool-Windows-${{ github.ref_name }}
-          path: |
-            dist/RSTao-Tool.exe
-            installer/RSTao-Tool-Setup-*.exe
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $assets = @("dist\RSTao-Tool.exe")
+          $assets += Get-ChildItem "installer\RSTao-Tool-Setup-*.exe" | ForEach-Object { $_.FullName }
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $assets --clobber
+          } else {
+            gh release create $tag $assets `
+              --title "RSTao-Tool $tag" `
+              --notes "Windows installer and executable built by GitHub Actions."
+          }
