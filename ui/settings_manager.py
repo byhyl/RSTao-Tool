@@ -4,8 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict
 
-from common.paths import get_appdata_dir
-from common.paths import get_cache_dir
+from common.paths import get_appdata_dir, get_cache_dir
 from common.paths import get_settings_dir as get_portable_settings_dir
 from common.paths import migrate_file_once
 

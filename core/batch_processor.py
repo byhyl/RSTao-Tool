@@ -15,8 +15,9 @@ import numpy as np
 
 from common import utils
 from common.logger import logger
-from .image_processing import ImageProcessingCore
 from data.image_io import read_raster_data, save_raster_result
+
+from .image_processing import ImageProcessingCore
 
 
 @dataclass

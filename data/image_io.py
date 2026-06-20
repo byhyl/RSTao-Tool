@@ -339,7 +339,9 @@ def save_raster_result(source_path, image, output_path, color_order="RGB"):
     src_ext = Path(str(source_path)).suffix.lower() if source_path else ""
     if out_ext in (".tif", ".tiff") and src_ext in (".tif", ".tiff", ".img", ".jp2", ".vrt"):
         return save_geotiff_like(source_path, image, output_path, color_order=color_order)
-    return save_image(make_preview(image) if np.asarray(image).dtype != np.uint8 else image, output_path)
+    return save_image(
+        make_preview(image) if np.asarray(image).dtype != np.uint8 else image, output_path
+    )
 
 
 def _prepare_geotiff_array(image, color_order="BGR"):

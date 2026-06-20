@@ -10,6 +10,7 @@ import customtkinter as ctk
 from PIL import Image
 
 from common.logger import logger
+from core.resource_manager import create_resource_record
 from core.spatial_reference import (
     compare_spatial_refs,
     compute_file_hash,
@@ -17,7 +18,6 @@ from core.spatial_reference import (
     read_raster_spatial_ref,
     read_vector_spatial_ref,
 )
-from core.resource_manager import create_resource_record
 
 from .theme import FONT_NORMAL, THEME
 

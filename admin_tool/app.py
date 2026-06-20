@@ -29,10 +29,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from common.paths import get_admin_data_dir, get_appdata_dir, get_runtime_dir, migrate_file_once
 
-
 # ====================== 配置 ======================
 from .tabs import OfflineKeyTab, OnlineCodeTab
-
 
 ADMIN_CONFIG_FILE = get_admin_data_dir() / "admin_config.json"
 migrate_file_once(
