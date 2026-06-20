@@ -1,11 +1,11 @@
 """设置面板 - RSTao-Tool（支持持久化）"""
 
-from pathlib import Path
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
 from common.i18n import current_lang, load_language, t
+from common.paths import get_cache_dir
 
 from .settings_manager import load_settings, save_settings
 from .theme import (
@@ -105,9 +105,7 @@ class SettingsTab(ctk.CTkFrame):
         cache_row.pack(fill="x", padx=16, pady=(0, 12))
         self.cache_entry = ctk.CTkEntry(cache_row, font=FONT_SMALL)
         self.cache_entry.pack(side="left", fill="x", expand=True)
-        self.cache_entry.insert(
-            0, self._settings.get("cache_dir", str(Path.home() / ".rstao_cache"))
-        )
+        self.cache_entry.insert(0, self._settings.get("cache_dir", str(get_cache_dir())))
         ctk.CTkButton(
             cache_row,
             text=t("common.browse", "浏览"),
@@ -248,9 +246,7 @@ class SettingsTab(ctk.CTkFrame):
             entry.delete(0, "end")
             entry.insert(0, str(defaults.get(key, "")))
         self.cache_entry.delete(0, "end")
-        self.cache_entry.insert(
-            0, self._settings.get("cache_dir", str(Path.home() / ".rstao_cache"))
-        )
+        self.cache_entry.insert(0, self._settings.get("cache_dir", str(get_cache_dir())))
         self.theme_var.set(self._settings.get("theme", get_current_mode()))
         self.lang_var.set(self._settings.get("language", current_lang()))
         notify(self, t("settings.reset_done", "已恢复默认设置"), "success")
@@ -292,9 +288,7 @@ class SettingsTab(ctk.CTkFrame):
         self.theme_var.set(self._settings.get("theme", get_current_mode()))
         self.lang_var.set(self._settings.get("language", current_lang()))
         self.cache_entry.delete(0, "end")
-        self.cache_entry.insert(
-            0, self._settings.get("cache_dir", str(Path.home() / ".rstao_cache"))
-        )
+        self.cache_entry.insert(0, self._settings.get("cache_dir", str(get_cache_dir())))
 
         defaults = self._settings.get("defaults", {})
         for key, entry in getattr(self, "_default_entries", {}).items():

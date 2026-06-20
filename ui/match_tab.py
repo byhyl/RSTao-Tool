@@ -11,12 +11,19 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 
 from core import ImageMatchingCore
-from data.image_io import get_image_metadata
+from data.image_io import get_image_metadata, save_geotiff_like
 
 from .raster_viewer import RasterViewer
 from .settings_manager import load_settings
 from .theme import FONT_NORMAL, FONT_SMALL, FONT_SUBTITLE, PANEL_STYLE, THEME, CollapsibleCard
-from .ui_helpers import make_button, notify, record_project_result
+from .ui_helpers import (
+    make_button,
+    mark_project_dirty,
+    notify,
+    raster_geo_transform,
+    record_data_source,
+    record_project_result,
+)
 
 plt.rcParams["font.family"] = ["SimHei", "Microsoft YaHei"]
 plt.rcParams["axes.unicode_minus"] = False
@@ -35,7 +42,9 @@ class MatchTab(ctk.CTkFrame):
 
         self.templates = []
         self.template_paths = []
+        self.template_geo_transforms = []
         self.search_path = ""
+        self.search_geo_transform = None
         self.search_img = None
         self.result_img = None
         self.correlation_map = None
@@ -330,11 +339,25 @@ class MatchTab(ctk.CTkFrame):
             idx = int(sel[0]) if sel else 0
             idx = max(0, min(idx, len(self.templates) - 1))
             img, _, _ = self.templates[idx]
-            self.viewer_template.load(image_array=cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            geo_transform = (
+                self.template_geo_transforms[idx]
+                if idx < len(self.template_geo_transforms)
+                else None
+            )
+            self.viewer_template.load(
+                image_array=cv2.cvtColor(img, cv2.COLOR_BGR2RGB),
+                geo_transform=geo_transform,
+            )
         if self.search_img is not None:
-            self.viewer_search.load(image_array=cv2.cvtColor(self.search_img, cv2.COLOR_BGR2RGB))
+            self.viewer_search.load(
+                image_array=cv2.cvtColor(self.search_img, cv2.COLOR_BGR2RGB),
+                geo_transform=self.search_geo_transform,
+            )
         if self.result_img is not None:
-            self.viewer_result.load(image_array=cv2.cvtColor(self.result_img, cv2.COLOR_BGR2RGB))
+            self.viewer_result.load(
+                image_array=cv2.cvtColor(self.result_img, cv2.COLOR_BGR2RGB),
+                geo_transform=self.search_geo_transform,
+            )
         if self.correlation_map is not None:
             self.ax_heat.clear()
             im = self.ax_heat.imshow(self.correlation_map, cmap="jet", vmin=0, vmax=1)
@@ -352,12 +375,15 @@ class MatchTab(ctk.CTkFrame):
                 color = self.colors[len(self.templates) % len(self.colors)]
                 self.templates.append((img, name, color))
                 self.template_paths.append(p)
+                self.template_geo_transforms.append(raster_geo_transform(p))
+                record_data_source(self, p, "raster")
             except Exception as e:
                 messagebox.showerror("错误", f"加载模板失败：{str(e)}")
         self._refresh_template_tree()
         self._check_buttons()
         self._update_display()
         if paths:
+            mark_project_dirty(self)
             notify(self, f"已添加 {len(paths)} 个模板", "success")
 
     def remove_selected_template(self):
@@ -368,6 +394,8 @@ class MatchTab(ctk.CTkFrame):
             idx = int(sel[0])
             del self.templates[idx]
             del self.template_paths[idx]
+            if idx < len(self.template_geo_transforms):
+                del self.template_geo_transforms[idx]
             self._refresh_template_tree()
             notify(self, "模板已删除", "success")
         except Exception:
@@ -378,6 +406,7 @@ class MatchTab(ctk.CTkFrame):
     def clear_all_templates(self):
         self.templates.clear()
         self.template_paths.clear()
+        self.template_geo_transforms.clear()
         self._refresh_template_tree()
         self._check_buttons()
         self._update_display()
@@ -390,10 +419,13 @@ class MatchTab(ctk.CTkFrame):
         try:
             self.search_path = p
             self.search_img = self.core.load_image_with_chinese_path(p)
+            source = record_data_source(self, p, "raster")
+            self.search_geo_transform = (source or {}).get("transform") or raster_geo_transform(p)
             self.search_label.configure(text=os.path.basename(p))
             self._update_image_metadata(p)
             self._check_buttons()
             self._update_display()
+            mark_project_dirty(self)
             notify(self, f"搜索区域加载完成：{os.path.basename(p)}", "success")
         except Exception as e:
             messagebox.showerror("错误", f"加载失败：{str(e)}")
@@ -509,11 +541,21 @@ class MatchTab(ctk.CTkFrame):
             messagebox.showwarning("提示", "没有可保存的结果")
             return
         p = filedialog.asksaveasfilename(
-            defaultextension=".png", filetypes=[("PNG图像", "*.png"), ("JPG图像", "*.jpg")]
+            defaultextension=".png",
+            filetypes=[("PNG图像", "*.png"), ("JPG图像", "*.jpg"), ("GeoTIFF", "*.tif")],
         )
         if p:
             try:
-                self.core.save_image_with_chinese_path(self.result_img, p)
+                if self._is_tiff(p) and self._is_tiff(self.search_path):
+                    save_geotiff_like(self.search_path, self.result_img, p, color_order="BGR")
+                else:
+                    self.core.save_image_with_chinese_path(self.result_img, p)
+                    if self._is_tiff(self.search_path) and not self._is_tiff(p):
+                        notify(
+                            self,
+                            "Spatial reference is not preserved in PNG/JPEG exports.",
+                            "warning",
+                        )
                 record_project_result(
                     self,
                     "match",
@@ -530,11 +572,17 @@ class MatchTab(ctk.CTkFrame):
             except Exception as e:
                 messagebox.showerror("错误", f"保存失败：{str(e)}")
 
+    @staticmethod
+    def _is_tiff(path):
+        return os.path.splitext(str(path))[1].lower() in (".tif", ".tiff")
+
     def clear_all(self):
         self.templates.clear()
         self.template_paths.clear()
+        self.template_geo_transforms.clear()
         self._refresh_template_tree()
         self.search_img = None
+        self.search_geo_transform = None
         self.result_img = None
         self.correlation_map = None
         self.search_label.configure(text="未选择文件")
@@ -600,6 +648,7 @@ class MatchTab(ctk.CTkFrame):
             try:
                 self.search_path = search_path
                 self.search_img = self.core.load_image_with_chinese_path(search_path)
+                self.search_geo_transform = raster_geo_transform(search_path)
                 self.search_label.configure(text=os.path.basename(search_path))
                 self._update_image_metadata(search_path)
             except Exception:
@@ -609,6 +658,7 @@ class MatchTab(ctk.CTkFrame):
         template_paths = state.get("template_paths", [])
         self.templates = []
         self.template_paths = []
+        self.template_geo_transforms = []
         self._refresh_template_tree()
         for path in template_paths:
             if os.path.exists(path):
@@ -618,6 +668,7 @@ class MatchTab(ctk.CTkFrame):
                     color = self.colors[len(self.templates) % len(self.colors)]
                     self.templates.append((img, name, color))
                     self.template_paths.append(path)
+                    self.template_geo_transforms.append(raster_geo_transform(path))
                 except Exception:
                     pass
 

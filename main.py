@@ -6,7 +6,7 @@ from tkinter import messagebox
 from activation_ui import ActivationUI
 from auth import AuthManager
 from common.logger import logger
-from ui import MainWindow
+from ui.main_window import MainWindow
 
 
 def start_main():

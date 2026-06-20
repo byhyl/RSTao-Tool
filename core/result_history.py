@@ -19,6 +19,11 @@ class ResultRecord:
     outputs: List[str] = field(default_factory=list)
     params: Dict[str, Any] = field(default_factory=dict)
     metrics: Dict[str, Any] = field(default_factory=dict)
+    data_sources: List[Dict[str, Any]] = field(default_factory=list)
+    input_hashes: Dict[str, str] = field(default_factory=dict)
+    spatial_refs: List[str] = field(default_factory=list)
+    model_config: Dict[str, Any] = field(default_factory=dict)
+    software_version: str = "RSTao-Tool"
     notes: str = ""
 
     def to_dict(self) -> Dict[str, Any]:

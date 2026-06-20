@@ -14,9 +14,9 @@
 - Batch processor: `iter_images()` generator + `limit` parameter
 
 ### Security
-- Activation server rate limiter (RateLimiter: 5req/60s, 10req/30s)
-- IP truncation in logs (first 12 chars)
-- Device fingerprint truncation (first 8 chars)
+- Activation server admin-token endpoint rate limiting
+- Activation logs truncate device fingerprints in success messages
+- Legacy AES licenses disabled by default; v2 RSA-signed licenses preferred
 
 ### Testing
 - Added `test_coordinate_system.py` (17 tests)
@@ -29,7 +29,7 @@
 - Keyboard shortcuts: Ctrl+S/N/O, Delete
 - Drag & drop file loading (.tif/.shp/.rstao)
 - RasterViewer right-click menu (Fit/Zoom 1:1/Export)
-- Settings persistence (`%APPDATA%/RSTao-Tool/settings.json`)
+- Settings persistence (`RSTao_Data/settings/settings.json`)
 - i18n expansion: 30 → **76 keys**
 - `settings_tab.py` fully i18n-ed
 
@@ -41,7 +41,7 @@
 - Unified dependencies in `pyproject.toml` with `[dev]`/`[geo]`/`[ml]` groups
 
 ### Data
-- Project file `schema_version: 1`
+- Project file `schema_version: 4`
 - Auto-backup `.bak` before save
 
 ## [2.0.0] — Initial Release

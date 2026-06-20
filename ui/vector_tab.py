@@ -23,11 +23,20 @@ from core import (
     select_feature,
     update_feature_property,
 )
+from core.spatial_reference import pixel_to_map, read_raster_spatial_ref
 from data import read_shp, save_dwg, save_shp
 
+from .error_dialog import show_actionable_error
+from .import_preview_dialog import confirm_import
 from .raster_viewer import RasterViewer
 from .theme import FONT_NORMAL, FONT_SMALL, FONT_SUBTITLE, PANEL_STYLE, THEME, CollapsibleCard
-from .ui_helpers import notify, record_project_result
+from .ui_helpers import (
+    mark_project_dirty,
+    notify,
+    raster_geo_transform,
+    record_data_source,
+    record_project_result,
+)
 from .undo_manager import DeleteFeatureCommand, EditVertexCommand, MoveFeatureCommand, UndoManager
 
 set_chinese_font()
@@ -62,6 +71,8 @@ class VectorTab(ctk.CTkFrame):
         self.base_image = None
         self.base_image_extent = None
         self.base_image_path = ""
+        self.base_geo_transform = None
+        self.base_crs = ""
         self._viewer_content = ""
 
         self.undo_mgr = UndoManager(on_change=self._on_undo_state_change)
@@ -299,6 +310,7 @@ class VectorTab(ctk.CTkFrame):
         layer["visible"] = True
         layer["color"] = DEFAULT_VECTOR_COLOR
         layer["geometry_type"] = geom_type
+        layer["coord_mode"] = "pixel"
         self.layers.append(layer)
         self.refresh_layer_tree()
         self.selected_layer_idx = len(self.layers) - 1
@@ -342,6 +354,7 @@ class VectorTab(ctk.CTkFrame):
             self._reset_selection()
             self.refresh_layer_tree()
             self.redraw()
+            mark_project_dirty(self)
 
     # ========== 编辑功能 ==========
     def set_edit_mode(self):
@@ -374,21 +387,35 @@ class VectorTab(ctk.CTkFrame):
     @safe_execute
     def load_shp(self):
         p = filedialog.askopenfilename(filetypes=[("SHP文件", "*.shp")])
-        if p:
-            self.load_shp_direct(p)
+        if p and confirm_import(self, p, "shp"):
+            self.load_shp_direct(p, preview=False)
 
     @safe_execute
-    def load_shp_direct(self, p):
-        layer = read_shp(p)
-        layer["name"] = os.path.basename(p).replace(".shp", "")
-        layer["path"] = p
-        layer["visible"] = True
-        layer["color"] = DEFAULT_VECTOR_COLOR
-        self.layers.append(layer)
-        self.refresh_layer_tree()
-        self.redraw()
-        self.status_vars["image_size"].set(f"图层数: {len(self.layers)}")
-        notify(self, f"SHP 文件加载完成：{os.path.basename(p)}", "success")
+    def load_shp_direct(self, p, preview: bool = True):
+        if preview and not confirm_import(self, p, "shp"):
+            return
+        try:
+            layer = read_shp(p)
+            layer["name"] = os.path.basename(p).replace(".shp", "")
+            layer["path"] = p
+            layer["visible"] = True
+            layer["color"] = DEFAULT_VECTOR_COLOR
+            layer["coord_mode"] = "map"
+            self.layers.append(layer)
+            record_data_source(self, p, "vector")
+            self.refresh_layer_tree()
+            self.redraw()
+            self.status_vars["image_size"].set(f"图层数: {len(self.layers)}")
+            mark_project_dirty(self)
+            notify(self, f"SHP 文件加载完成：{os.path.basename(p)}", "success")
+        except Exception as exc:
+            show_actionable_error(
+                self,
+                "SHP 加载失败",
+                "矢量文件没有成功导入。",
+                "请确认 .shp/.dbf/.shx 等配套文件完整，并检查坐标系信息。",
+                detail=str(exc),
+            )
 
     @safe_execute
     def new_empty_layer(self):
@@ -406,9 +433,11 @@ class VectorTab(ctk.CTkFrame):
         new_layer["visible"] = True
         new_layer["color"] = DEFAULT_VECTOR_COLOR
         new_layer["geometry_type"] = geom_map[layer_type]  # 明确添加geometry_type字段
+        new_layer["coord_mode"] = "pixel"
         self.layers.append(new_layer)
         self.refresh_layer_tree()
         self.redraw()
+        mark_project_dirty(self)
         notify(self, f"已新建{layer_type}图层", "success")
 
     @safe_execute
@@ -418,6 +447,8 @@ class VectorTab(ctk.CTkFrame):
         )
         if not path:
             return
+        if not confirm_import(self, path, "image"):
+            return
 
         img = utils.imread_chinese(path)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -426,10 +457,14 @@ class VectorTab(ctk.CTkFrame):
         self.base_image_path = path
         self.base_image = img
         self.base_image_extent = [0, w, 0, h]  # 修复：使用正确的坐标范围
-        self.viewer.load(image_array=self.base_image)
+        source = record_data_source(self, path, "raster")
+        self.base_geo_transform = (source or {}).get("transform") or raster_geo_transform(path)
+        self.base_crs = (source or {}).get("crs") or ""
+        self.viewer.load(image_array=self.base_image, geo_transform=self.base_geo_transform)
         self._viewer_content = self.base_image_path
         self.redraw()
         self.status_vars["image_size"].set(f"底图: {w}×{h}")
+        mark_project_dirty(self)
         notify(self, f"影像底图导入完成：{os.path.basename(path)}", "success")
 
     def _on_viewer_coord(self, text):
@@ -440,7 +475,7 @@ class VectorTab(ctk.CTkFrame):
         self.viewer.clear_overlays()
 
         if self.base_image is not None and self._viewer_content != self.base_image_path:
-            self.viewer.load(image_array=self.base_image)
+            self.viewer.load(image_array=self.base_image, geo_transform=self.base_geo_transform)
             self._viewer_content = self.base_image_path
         elif self.base_image is None and self.viewer._pil_image is None:
             self._ensure_blank_workspace()
@@ -517,6 +552,7 @@ class VectorTab(ctk.CTkFrame):
         ] = self.selected_feature
         invalidate_shapely_cache(self.layers[self.selected_layer_idx], self.selected_feature_idx)
         self.refresh_prop()
+        mark_project_dirty(self)
 
     def add_field(self):
         if self.selected_layer_idx is None:
@@ -529,6 +565,7 @@ class VectorTab(ctk.CTkFrame):
             self.layers[self.selected_layer_idx], name
         )
         self.refresh_prop()
+        mark_project_dirty(self)
 
     def del_field(self):
         if self.selected_layer_idx is None:
@@ -543,6 +580,7 @@ class VectorTab(ctk.CTkFrame):
             self.layers[self.selected_layer_idx], field
         )
         self.refresh_prop()
+        mark_project_dirty(self)
 
     def batch_edit_prop(self):
         if self.selected_layer_idx is None:
@@ -557,6 +595,7 @@ class VectorTab(ctk.CTkFrame):
         )
         self.refresh_prop()
         self.redraw()
+        mark_project_dirty(self)
 
     # ========== 导出功能 ==========
     @safe_execute
@@ -574,21 +613,7 @@ class VectorTab(ctk.CTkFrame):
             if self.selected_layer_idx != None
             else self.layers[0]
         )
-        # 像素坐标(y-down) -> GIS/CAD坐标(y-up) 翻转
-        if self.base_image is not None:
-            h = self.base_image.shape[0]
-            import copy
-
-            layer = copy.deepcopy(layer)
-            for f in layer["features"]:
-                g = f["geometry"]
-                if g["type"] == "Point":
-                    g["coordinates"][1] = h - g["coordinates"][1]
-                elif g["type"] == "LineString":
-                    g["coordinates"] = [(x, h - y) for x, y in g["coordinates"]]
-                elif g["type"] == "Polygon":
-                    for ring in g["coordinates"]:
-                        ring[:] = [(x, h - y) for x, y in ring]
+        layer = self._prepare_layer_for_export(layer)
         if fmt == "shp":
             save_shp(layer, path)
         else:
@@ -606,6 +631,51 @@ class VectorTab(ctk.CTkFrame):
             },
         )
         notify(self, f"导出 {fmt} 完成：{path}", "success")
+
+    def _prepare_layer_for_export(self, layer):
+        import copy
+
+        out = copy.deepcopy(layer)
+        if out.get("coord_mode") == "map":
+            return out
+        if self.base_geo_transform:
+            for feature in out.get("features", []):
+                self._transform_feature_coords(feature, self._pixel_to_map_point)
+            if self.base_crs:
+                out["crs"] = self.base_crs
+            out["coord_mode"] = "map"
+            return out
+        if self.base_image is not None:
+            height = self.base_image.shape[0]
+            for feature in out.get("features", []):
+                self._transform_feature_coords(feature, lambda x, y: (x, height - y))
+        return out
+
+    def _pixel_to_map_point(self, x, y):
+        mapped = pixel_to_map(x, y, self.base_geo_transform)
+        return mapped if mapped else (x, y)
+
+    def _transform_feature_coords(self, feature, transform_point):
+        geometry = feature.get("geometry", {})
+        gtype = geometry.get("type")
+        if gtype == "Point":
+            x, y = geometry["coordinates"][:2]
+            geometry["coordinates"] = list(transform_point(x, y))
+        elif gtype in ("LineString", "MultiPoint"):
+            geometry["coordinates"] = [transform_point(x, y) for x, y in geometry["coordinates"]]
+        elif gtype == "Polygon":
+            geometry["coordinates"] = [
+                [transform_point(x, y) for x, y in ring] for ring in geometry["coordinates"]
+            ]
+        elif gtype == "MultiLineString":
+            geometry["coordinates"] = [
+                [transform_point(x, y) for x, y in line] for line in geometry["coordinates"]
+            ]
+        elif gtype == "MultiPolygon":
+            geometry["coordinates"] = [
+                [[transform_point(x, y) for x, y in ring] for ring in poly]
+                for poly in geometry["coordinates"]
+            ]
 
     # ========== 鼠标事件 ==========
     def on_mouse_down(self, px, py, event):
@@ -779,6 +849,7 @@ class VectorTab(ctk.CTkFrame):
         self.redraw()
         self.status_vars["features"].set(f"总要素: {sum(len(l['features']) for l in self.layers)}")
         invalidate_shapely_cache(layer)
+        mark_project_dirty(self)
 
     def _update_temp(self):
         self.redraw()
@@ -791,6 +862,7 @@ class VectorTab(ctk.CTkFrame):
         self.redraw()
         self.status_vars["features"].set(f"总要素: {sum(len(l['features']) for l in self.layers)}")
         invalidate_shapely_cache(layer)
+        mark_project_dirty(self)
 
     def _finish_poly(self):
         layer_idx, layer = self._ensure_draw_layer("Polygon", "面图层")
@@ -800,6 +872,7 @@ class VectorTab(ctk.CTkFrame):
         self.redraw()
         self.status_vars["features"].set(f"总要素: {sum(len(l['features']) for l in self.layers)}")
         invalidate_shapely_cache(layer)
+        mark_project_dirty(self)
 
     @safe_execute
     def delete_selected(self):
@@ -817,6 +890,7 @@ class VectorTab(ctk.CTkFrame):
         self.status_vars["features"].set(
             f"Total features: {sum(len(layer['features']) for layer in self.layers)}"
         )
+        mark_project_dirty(self)
 
     def clear_all(self):
         if messagebox.askyesno("确认", "清空所有数据？"):
@@ -826,6 +900,8 @@ class VectorTab(ctk.CTkFrame):
             self.base_image = None
             self.base_image_extent = None
             self.base_image_path = ""
+            self.base_geo_transform = None
+            self.base_crs = ""
             self._viewer_content = ""
             self.viewer.clear_image()
             self._ensure_blank_workspace()
@@ -833,6 +909,7 @@ class VectorTab(ctk.CTkFrame):
             self.redraw()
             self.status_vars["image_size"].set("无数据")
             self.status_vars["features"].set("0")
+            mark_project_dirty(self)
 
     # ========== 项目状态管理 ==========
 
@@ -873,6 +950,8 @@ class VectorTab(ctk.CTkFrame):
                 h, w = img.shape[:2]
                 self.base_image = img
                 self.base_image_extent = [0, w, 0, h]
+                self.base_geo_transform = raster_geo_transform(base_path)
+                self.base_crs = read_raster_spatial_ref(base_path).crs
             except Exception:
                 logger.debug("忽略非关键错误")
                 pass
@@ -888,6 +967,7 @@ class VectorTab(ctk.CTkFrame):
                     layer["path"] = path
                     layer["visible"] = True
                     layer["color"] = DEFAULT_VECTOR_COLOR
+                    layer["coord_mode"] = "map"
                     self.layers.append(layer)
                 except Exception:
                     pass

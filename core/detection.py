@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 
 from common.logger import logger
+from core.model_registry import ModelConfig
 
 
 @dataclass
@@ -53,6 +54,7 @@ class ONNXDetector:
         self._input_shape = (640, 640)
         self._names: dict = {}
         self._available = False
+        self.model_config: dict = {}
 
         if model_path and os.path.exists(model_path):
             self.load_model(model_path)
@@ -84,6 +86,12 @@ class ONNXDetector:
             self._input_shape = (w, h)
             self.model_path = model_path
             self._available = True
+            self.model_config = {
+                "model_path": model_path,
+                "input_size": [int(w), int(h)],
+                "confidence": float(self.confidence),
+                "iou_threshold": float(self.iou_threshold),
+            }
             logger.info(f"ONNX 模型加载成功: {model_path} ({self._input_shape})")
             return True
         except ImportError:
@@ -95,6 +103,16 @@ class ONNXDetector:
     def set_classes(self, names: dict):
         """设置类别名称映射"""
         self._names = names
+
+    def apply_model_config(self, config: ModelConfig):
+        """Apply persisted model post-processing configuration."""
+        self.confidence = float(config.confidence)
+        self.iou_threshold = float(config.iou_threshold)
+        if config.input_size and len(config.input_size) == 2:
+            self._input_shape = (int(config.input_size[0]), int(config.input_size[1]))
+        if config.class_names:
+            self.set_classes({idx: name for idx, name in enumerate(config.class_names)})
+        self.model_config = config.to_dict()
 
     def detect(self, image: np.ndarray) -> DetectionOutput:
         """执行目标检测"""
@@ -160,6 +178,7 @@ class ONNXDetector:
                     cx, cy, bw, bh = pred[:4]
                     x1, y1 = cx - bw / 2, cy - bh / 2
                     x2, y2 = cx + bw / 2, cy + bh / 2
+                x1, y1, x2, y2 = self._scale_box(x1, y1, x2, y2, original_size)
             else:
                 name_count = len(self._names)
                 has_objectness = (
@@ -208,6 +227,17 @@ class ONNXDetector:
         # NMS
         results = self._nms(results)
         return results
+
+    def _scale_box(self, x1, y1, x2, y2, original_size: Tuple[int, int]):
+        """Scale model-space boxes to the original image when needed."""
+        ow, oh = original_size
+        iw, ih = self._input_shape
+        max_coord = max(float(x1), float(y1), float(x2), float(y2))
+        if max_coord <= 1.5:
+            return x1 * ow, y1 * oh, x2 * ow, y2 * oh
+        if (ow, oh) != (iw, ih) and max_coord <= max(iw, ih) * 1.5:
+            return x1 * (ow / iw), y1 * (oh / ih), x2 * (ow / iw), y2 * (oh / ih)
+        return x1, y1, x2, y2
 
     def _nms(self, detections: List[DetectionResult]) -> List[DetectionResult]:
         """非极大值抑制"""

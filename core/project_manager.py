@@ -11,9 +11,24 @@ from pathlib import Path
 from typing import Optional
 
 from common.logger import logger
+from common.paths import get_settings_dir, migrate_file_once
 from core.result_history import make_result_record
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
+
+
+def _safe_path_exists(path: str | Path) -> bool:
+    try:
+        return Path(path).exists()
+    except (OSError, ValueError):
+        return False
+
+
+def _safe_path_stat(path: str | Path):
+    try:
+        return Path(path).stat()
+    except (OSError, ValueError):
+        return None
 
 
 class ProjectManager:
@@ -29,26 +44,35 @@ class ProjectManager:
         self._dirty = False
         self._auto_save_enabled = True
         self._save_lock = threading.Lock()
+        self.last_saved_at: Optional[str] = None
 
     def _load_recent_projects(self):
-        config_path = os.path.join(os.path.expanduser("~"), ".rstao_config")
-        if os.path.exists(config_path):
+        config_path = self._recent_projects_config_path()
+        if config_path.exists():
             try:
                 with open(config_path, "r", encoding="utf-8") as f:
                     config = json.load(f)
-                    return config.get("recent_projects", [])
+                    projects = config.get("recent_projects", [])
+                    return [path for path in projects if isinstance(path, str)]
             except (json.JSONDecodeError, OSError):
                 pass
         return []
 
     def _save_recent_projects(self):
-        config_path = os.path.join(os.path.expanduser("~"), ".rstao_config")
+        config_path = self._recent_projects_config_path()
         config = {"recent_projects": self.recent_projects}
         try:
+            config_path.parent.mkdir(parents=True, exist_ok=True)
             with open(config_path, "w", encoding="utf-8") as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
         except Exception:
             pass
+
+    @staticmethod
+    def _recent_projects_config_path() -> Path:
+        path = get_settings_dir() / "recent_projects.json"
+        migrate_file_once([Path(os.path.expanduser("~")) / ".rstao_config"], path)
+        return path
 
     def add_recent_project(self, path):
         if path in self.recent_projects:
@@ -56,6 +80,19 @@ class ProjectManager:
         self.recent_projects.insert(0, path)
         if len(self.recent_projects) > self.max_recent:
             self.recent_projects = self.recent_projects[: self.max_recent]
+        self._save_recent_projects()
+
+    def remove_recent_project(self, path):
+        if path in self.recent_projects:
+            self.recent_projects.remove(path)
+            self._save_recent_projects()
+
+    def clear_recent_projects(self):
+        self.recent_projects = []
+        self._save_recent_projects()
+
+    def prune_missing_recent_projects(self):
+        self.recent_projects = [path for path in self.recent_projects if _safe_path_exists(path)]
         self._save_recent_projects()
 
     def new_project(self, name, save_path):
@@ -67,11 +104,14 @@ class ProjectManager:
             "modified_time": now,
             "current_tab": "特征检测",
             "feature_tab": {},
+            "image_processing_tab": {},
             "match_tab": {},
             "vector_tab": {},
             "coordinate_tab": {},
             "detection_tab": {},
             "settings_tab": {},
+            "resources": [],
+            "data_sources": [],
             "result_history": [],
             "task_history": [],
         }
@@ -83,6 +123,7 @@ class ProjectManager:
     def save_project(
         self,
         feature_state=None,
+        image_processing_state=None,
         match_state=None,
         vector_state=None,
         current_tab=None,
@@ -98,6 +139,8 @@ class ProjectManager:
         self.current_project.setdefault("schema_version", SCHEMA_VERSION)
         if feature_state is not None:
             self.current_project["feature_tab"] = feature_state
+        if image_processing_state is not None:
+            self.current_project["image_processing_tab"] = image_processing_state
         if match_state is not None:
             self.current_project["match_tab"] = match_state
         if vector_state is not None:
@@ -120,13 +163,14 @@ class ProjectManager:
             if not autosave:
                 self.discard_autosave(self.project_path)
                 self._dirty = False
+                self.last_saved_at = datetime.now().strftime("%H:%M:%S")
             return True
         except Exception as e:
             logger.error(f"保存项目失败: {e}", exc_info=True)
             return False
 
     def load_project(self, path):
-        if not os.path.exists(path):
+        if not _safe_path_exists(path):
             return False
 
         try:
@@ -145,13 +189,98 @@ class ProjectManager:
             return
         self.current_project.setdefault("schema_version", SCHEMA_VERSION)
         self.current_project.setdefault("feature_tab", {})
+        self.current_project.setdefault("image_processing_tab", {})
         self.current_project.setdefault("match_tab", {})
         self.current_project.setdefault("vector_tab", {})
         self.current_project.setdefault("coordinate_tab", {})
         self.current_project.setdefault("detection_tab", {})
         self.current_project.setdefault("settings_tab", {})
+        self.current_project.setdefault("resources", [])
+        self.current_project.setdefault("data_sources", [])
         self.current_project.setdefault("result_history", [])
         self.current_project.setdefault("task_history", [])
+
+    def add_data_source(self, source: dict):
+        if not self.current_project:
+            return None
+        sources = self.current_project.setdefault("data_sources", [])
+        source_path = source.get("source_path") or source.get("path")
+        if source_path:
+            sources[:] = [item for item in sources if item.get("source_path") != source_path]
+        sources.insert(0, source)
+        del sources[200:]
+        self.mark_dirty()
+        return source
+
+    def add_resource(self, resource: dict):
+        if not self.current_project:
+            return None
+        resources = self.current_project.setdefault("resources", [])
+        source_path = resource.get("source_path") or resource.get("path")
+        resource_id = resource.get("resource_id")
+        if source_path or resource_id:
+            resources[:] = [
+                item
+                for item in resources
+                if item.get("source_path") != source_path and item.get("resource_id") != resource_id
+            ]
+        resource.setdefault("order", len(resources))
+        resources.insert(0, resource)
+        del resources[500:]
+        self.mark_dirty()
+        try:
+            from core.resource_catalog import record_resource
+
+            record_resource(resource)
+        except Exception as e:
+            logger.warning(f"更新资源索引失败: {e}")
+        return resource
+
+    def remove_resource(self, resource_id: str):
+        if not self.current_project:
+            return False
+        resources = self.current_project.setdefault("resources", [])
+        removed_paths = {
+            item.get("source_path")
+            for item in resources
+            if item.get("resource_id") == resource_id and item.get("source_path")
+        }
+        before = len(resources)
+        resources[:] = [item for item in resources if item.get("resource_id") != resource_id]
+        changed = len(resources) != before
+        if removed_paths:
+            sources = self.current_project.setdefault("data_sources", [])
+            sources[:] = [
+                item
+                for item in sources
+                if (item.get("source_path") or item.get("path")) not in removed_paths
+            ]
+        if changed:
+            self.mark_dirty()
+        return changed
+
+    def update_resource(self, resource_id: str, **updates):
+        if not self.current_project:
+            return None
+        for resource in self.current_project.setdefault("resources", []):
+            if resource.get("resource_id") == resource_id:
+                resource.update(updates)
+                self.mark_dirty()
+                return resource
+        return None
+
+    def get_resources(self):
+        if not self.current_project:
+            return []
+        return self.current_project.setdefault("resources", [])
+
+    def primary_spatial_ref(self):
+        if not self.current_project:
+            return None
+        for source in self.current_project.get("data_sources", []):
+            if source.get("epsg") or source.get("crs") or source.get("wkt"):
+                return source
+        return None
 
     def add_result_record(self, category: str, title: str, **kwargs):
         if not self.current_project:
@@ -208,6 +337,10 @@ class ProjectManager:
     def mark_dirty(self):
         self._dirty = True
 
+    @property
+    def is_dirty(self) -> bool:
+        return self._dirty
+
     # ====================== Crash Recovery ======================
     @staticmethod
     def get_autosave_path(project_path: str | Path) -> Path:
@@ -222,13 +355,15 @@ class ProjectManager:
     def check_backup(self, project_path: str) -> bool:
         project = Path(project_path)
         autosave = self.get_autosave_path(project)
-        return autosave.exists() and (
-            not project.exists() or autosave.stat().st_mtime > project.stat().st_mtime
-        )
+        autosave_stat = _safe_path_stat(autosave)
+        if autosave_stat is None:
+            return False
+        project_stat = _safe_path_stat(project)
+        return project_stat is None or autosave_stat.st_mtime > project_stat.st_mtime
 
     def recover_from_backup(self, project_path: str) -> bool:
         autosave = self.get_autosave_path(project_path)
-        if not autosave.exists():
+        if not _safe_path_exists(autosave):
             return False
         try:
             shutil.copy2(str(autosave), project_path)
@@ -241,7 +376,7 @@ class ProjectManager:
     def discard_autosave(self, project_path: str | Path):
         autosave = self.get_autosave_path(project_path)
         try:
-            if autosave.exists():
+            if _safe_path_exists(autosave):
                 autosave.unlink()
         except Exception:
             pass
@@ -256,7 +391,7 @@ class ProjectManager:
         os.replace(tmp, path)
 
     def _backup_project_file(self, project_path: Path):
-        if not project_path.exists():
+        if not _safe_path_exists(project_path):
             return
         backup_path = self.get_backup_path(project_path)
         try:

@@ -1,56 +1,63 @@
-from .batch_processor import BatchProcessor, BatchResult, BatchTask
-from .coordinate_system import CHINA_EPSG, COMMON_EPSG, CoordinateSystem, CoordinateTransform
-from .detection import DetectionOutput, DetectionResult, ONNXDetector
-from .feature_detection import FeatureDetection
-from .image_matching import ImageMatchingCore, draw_heatmap, draw_matches, ncc_match, nms
-from .plugin_manager import BasePlugin, PluginInfo, PluginManager
-from .report_generator import FeatureStats, MatchStats, ReportGenerator
-from .vector_processing import (
-    add_property_field,
-    batch_update_properties,
-    create_line_feature,
-    create_new_layer,
-    create_point_feature,
-    create_polygon_feature,
-    delete_property_field,
-    invalidate_shapely_cache,
-    move_feature,
-    select_feature,
-    update_feature_property,
-)
+"""Core package exports.
 
-__all__ = [
-    "FeatureDetection",
-    "ImageMatchingCore",
-    "ncc_match",
-    "nms",
-    "draw_matches",
-    "draw_heatmap",
-    "move_feature",
-    "create_new_layer",
-    "create_point_feature",
-    "create_line_feature",
-    "create_polygon_feature",
-    "invalidate_shapely_cache",
-    "select_feature",
-    "update_feature_property",
-    "add_property_field",
-    "delete_property_field",
-    "batch_update_properties",
-    "BatchProcessor",
-    "BatchResult",
-    "BatchTask",
-    "ReportGenerator",
-    "MatchStats",
-    "FeatureStats",
-    "CoordinateSystem",
-    "CoordinateTransform",
-    "COMMON_EPSG",
-    "CHINA_EPSG",
-    "PluginManager",
-    "BasePlugin",
-    "PluginInfo",
-    "ONNXDetector",
-    "DetectionResult",
-    "DetectionOutput",
-]
+The package keeps compatibility exports lazy so importing one submodule does not
+pull optional dependencies from unrelated features.
+"""
+
+from importlib import import_module
+
+_EXPORTS = {
+    "BatchProcessor": ".batch_processor",
+    "BatchResult": ".batch_processor",
+    "BatchTask": ".batch_processor",
+    "CHINA_EPSG": ".coordinate_system",
+    "COMMON_EPSG": ".coordinate_system",
+    "CoordinateSystem": ".coordinate_system",
+    "CoordinateTransform": ".coordinate_system",
+    "DetectionOutput": ".detection",
+    "DetectionResult": ".detection",
+    "ONNXDetector": ".detection",
+    "FeatureDetection": ".feature_detection",
+    "ImageProcessingCore": ".image_processing",
+    "OperatorSpec": ".image_processing",
+    "ParameterSpec": ".image_processing",
+    "ProcessingResult": ".image_processing",
+    "match_histogram": ".image_processing",
+    "ImageMatchingCore": ".image_matching",
+    "draw_heatmap": ".image_matching",
+    "draw_matches": ".image_matching",
+    "ncc_match": ".image_matching",
+    "nms": ".image_matching",
+    "BasePlugin": ".plugin_manager",
+    "PluginInfo": ".plugin_manager",
+    "PluginManager": ".plugin_manager",
+    "FeatureStats": ".report_generator",
+    "MatchStats": ".report_generator",
+    "ReportGenerator": ".report_generator",
+    "create_resource_record": ".resource_manager",
+    "read_scene_preview": ".resource_manager",
+    "resource_summary": ".resource_manager",
+    "resource_type_label": ".resource_manager",
+    "add_property_field": ".vector_processing",
+    "batch_update_properties": ".vector_processing",
+    "create_line_feature": ".vector_processing",
+    "create_new_layer": ".vector_processing",
+    "create_point_feature": ".vector_processing",
+    "create_polygon_feature": ".vector_processing",
+    "delete_property_field": ".vector_processing",
+    "invalidate_shapely_cache": ".vector_processing",
+    "move_feature": ".vector_processing",
+    "select_feature": ".vector_processing",
+    "update_feature_property": ".vector_processing",
+}
+
+__all__ = sorted(_EXPORTS)
+
+
+def __getattr__(name):
+    if name not in _EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = import_module(_EXPORTS[name], __name__)
+    value = getattr(module, name)
+    globals()[name] = value
+    return value

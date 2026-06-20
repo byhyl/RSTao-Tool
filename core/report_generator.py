@@ -1,7 +1,9 @@
 """报告生成器 — 一键导出 HTML/PDF 精度报告"""
 
 import base64
+import html
 import io
+import json
 import os
 import time
 from dataclasses import dataclass, field
@@ -202,7 +204,10 @@ class ReportGenerator:
         if extra_info:
             extra_html = '<div class="extra"><h3>附加信息</h3><table>'
             for k, v in extra_info.items():
-                extra_html += f"<tr><td>{k}</td><td>{v}</td></tr>"
+                extra_html += (
+                    f"<tr><td>{html.escape(str(k))}</td>"
+                    f"<td>{self._format_extra_value(v)}</td></tr>"
+                )
             extra_html += "</table></div>"
 
         return f"""<!DOCTYPE html>
@@ -245,3 +250,11 @@ th {{ color: #8b8fa3; font-weight: 600; }}
         path.write_text(html, encoding="utf-8")
         logger.info(f"报告已保存: {path}")
         return str(path)
+
+    @staticmethod
+    def _format_extra_value(value) -> str:
+        if isinstance(value, (dict, list, tuple)):
+            text = json.dumps(value, ensure_ascii=False, indent=2)
+        else:
+            text = str(value)
+        return html.escape(text).replace("\n", "<br>")

@@ -64,6 +64,16 @@ class TestBatchProcessor:
         bp._report_progress(5, 10, "testing")
         assert called == [(5, 10, "testing")]
 
+    def test_task_callback(self):
+        bp = BatchProcessor()
+        task = BatchTask(input_path="x.png", output_dir="./out", status="done")
+        called = []
+        bp.on_task_update(lambda t, c, total: called.append((t.input_path, c, total)))
+
+        bp._report_task(task, 1, 2)
+
+        assert called == [("x.png", 1, 2)]
+
     def test_execute_batch_counts_skipped(self, tmp_path):
         bp = BatchProcessor(max_workers=1)
         result = BatchResult(total=2, start_time=0)
@@ -102,3 +112,32 @@ class TestBatchProcessor:
         payload = json.loads(Path(paths["json"]).read_text(encoding="utf-8"))
         assert payload["total"] == 1
         assert payload["tasks"][0]["params"]["threshold"] == 0.8
+
+    def test_export_summary_writes_failed_list(self, tmp_path):
+        bp = BatchProcessor()
+        task = BatchTask(
+            input_path="bad.png",
+            output_dir=str(tmp_path),
+            params={"threshold": 0.8},
+            status="failed",
+            error="cannot read",
+            duration=0.1,
+        )
+        result = BatchResult(
+            total=1,
+            failed=1,
+            tasks=[task],
+            start_time=1.0,
+            end_time=2.0,
+        )
+
+        paths = bp.export_summary(result, str(tmp_path))
+
+        assert Path(paths["failed_csv"]).exists()
+        assert "cannot read" in Path(paths["failed_csv"]).read_text(encoding="utf-8-sig")
+
+    def test_batch_feature_detect_paths_empty(self, tmp_path):
+        bp = BatchProcessor()
+        result = bp.batch_feature_detect_paths([], str(tmp_path))
+
+        assert result.total == 0

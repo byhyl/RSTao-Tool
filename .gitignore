@@ -24,6 +24,7 @@ venv/
 admin_license_private*.pem
 
 # Logs and runtime data
+RSTao_Data/
 *.log
 auth.log
 rstao_tool.log

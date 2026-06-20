@@ -1,25 +1,28 @@
-"""设置持久化管理 — 读写 %APPDATA%/RSTao-Tool/settings.json"""
+"""设置持久化管理 - 读写 RSTao_Data/settings/settings.json。"""
 
 import json
-import os
 from pathlib import Path
 from typing import Any, Dict
+
+from common.paths import get_appdata_dir
+from common.paths import get_cache_dir
+from common.paths import get_settings_dir as get_portable_settings_dir
+from common.paths import migrate_file_once
 
 
 # ====================== 配置读写 ======================
 def get_settings_dir() -> Path:
     """获取设置目录（自动创建）"""
-    path = Path(os.getenv("APPDATA", str(Path.home()))) / "RSTao-Tool"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    return get_portable_settings_dir()
 
 
 SETTINGS_FILE = get_settings_dir() / "settings.json"
+migrate_file_once([get_appdata_dir(create=False) / "settings.json"], SETTINGS_FILE)
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "theme": "dark",
     "language": "zh",
-    "cache_dir": str(Path.home() / ".rstao_cache"),
+    "cache_dir": str(get_cache_dir()),
     "defaults": {
         "harris_k": 0.04,
         "susan_t": 25,

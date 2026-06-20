@@ -10,6 +10,8 @@ from PIL import Image, ImageTk
 Image.MAX_IMAGE_PIXELS = None  # 允许超大影像
 import customtkinter as ctk
 
+from core.spatial_reference import normalize_geo_transform
+
 from .theme import FONT_SMALL, THEME
 from .ui_helpers import notify
 
@@ -40,6 +42,7 @@ class RasterViewer(ctk.CTkFrame):
         self._img_height = 0
         self._overview_scale = 1.0
         self._geo_transform = (0.0, 1.0, 0.0, 0.0, 0.0, -1.0)
+        self._has_geo_transform = False
         self._overlays = []
         self._offset_x = 0.0
         self._offset_y = 0.0
@@ -111,8 +114,13 @@ class RasterViewer(ctk.CTkFrame):
             self._load_array(image_array)
         elif path:
             self._load_file(path)
-        if geo_transform:
-            self._geo_transform = geo_transform
+        normalized_transform = normalize_geo_transform(geo_transform)
+        if normalized_transform:
+            self._geo_transform = normalized_transform
+            self._has_geo_transform = True
+        else:
+            self._geo_transform = (0.0, 1.0, 0.0, 0.0, 0.0, -1.0)
+            self._has_geo_transform = False
         self._fit_to_view()
         self.render()
 
@@ -127,6 +135,7 @@ class RasterViewer(ctk.CTkFrame):
         self._img_width = 0
         self._img_height = 0
         self._overview_scale = 1.0
+        self._has_geo_transform = False
         self._overlays.clear()
         self._canvas.delete("all")
         self._update_zoom_label()
@@ -210,7 +219,10 @@ class RasterViewer(ctk.CTkFrame):
         if ch < 4:
             ch = 400
         if self._img_width > 0:
-            self._zoom = min(cw / self._img_width, ch / self._img_height, 1.0) * 0.9
+            s = max(self._overview_scale, 1e-9)
+            display_w = self._img_width * s
+            display_h = self._img_height * s
+            self._zoom = min(cw / display_w, ch / display_h, 1.0 / s) * 0.9
             dw = self._img_width * self._zoom * self._overview_scale
             dh = self._img_height * self._zoom * self._overview_scale
             self._offset_x = (cw - dw) / 2
@@ -295,8 +307,11 @@ class RasterViewer(ctk.CTkFrame):
         if self._on_coord_change and self._img_width > 0:
             px, py = self.canvas_to_image(event.x, event.y)
             if 0 <= px < self._img_width and 0 <= py < self._img_height:
-                gx, gy = self.pixel_to_geo(px, py)
-                self._on_coord_change(f"像素: ({px:.1f}, {py:.1f})  地理: ({gx:.4f}, {gy:.4f})")
+                if self._has_geo_transform:
+                    gx, gy = self.pixel_to_geo(px, py)
+                    self._on_coord_change(f"像素: ({px:.1f}, {py:.1f})  地图: ({gx:.4f}, {gy:.4f})")
+                else:
+                    self._on_coord_change(f"像素: ({px:.1f}, {py:.1f})")
             else:
                 self._on_coord_change("")
 

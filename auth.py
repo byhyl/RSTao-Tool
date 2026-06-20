@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import os
+import platform
 import subprocess
 import sys
 import time
@@ -17,15 +18,26 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
-import wmi
+try:
+    import wmi
+except ImportError:  # pragma: no cover - exercised on machines without WMI installed
+    wmi = None
 
 from common.crypto import aes_gcm_decrypt, aes_gcm_encrypt, generate_machine_code_hash
 from common.license_crypto import parse_license_key
 from common.logger import logger
-from common.paths import get_appdata_dir, resolve_license_path
+from common.paths import (
+    get_appdata_dir,
+    get_runtime_dir,
+    get_settings_dir,
+    migrate_file_once,
+    resolve_license_path,
+)
 
 _TRIAL_VERSION = 2
 _TRIAL_SECRET = b"RSTao-Tool-trial-record-v2"
+_TRIAL_REG_PATH = r"Software\RSTao-Tool"
+_TRIAL_REG_NAME = "TrialRecordV2"
 
 
 @dataclass
@@ -47,7 +59,18 @@ class AuthManager:
     def __init__(self, config: AuthConfig = AuthConfig()):
         self.config = config
         self.license_path = resolve_license_path(self.config.LICENSE_FILE_NAME)
+        migrate_file_once(
+            [
+                get_runtime_dir() / self.config.LICENSE_FILE_NAME,
+                get_appdata_dir(create=False) / self.config.LICENSE_FILE_NAME,
+            ],
+            self.license_path,
+        )
         self._anti_tamper_file = self.license_path.parent / ".rstao_ts"
+        migrate_file_once(
+            [get_runtime_dir() / ".rstao_ts", get_appdata_dir(create=False) / ".rstao_ts"],
+            self._anti_tamper_file,
+        )
         self._machine_code: Optional[str] = None
 
     def encrypt_data(self, text: str) -> Optional[str]:
@@ -63,6 +86,8 @@ class AuthManager:
         if self._machine_code:
             return self._machine_code
         try:
+            if wmi is None:
+                raise ImportError("wmi")
             c = wmi.WMI()
             cpu_info = c.Win32_Processor()[0]
             cpu_id = cpu_info.ProcessorId.strip() if hasattr(cpu_info, "ProcessorId") else ""
@@ -82,14 +107,34 @@ class AuthManager:
             self._machine_code = hashlib.md5(machine_str.encode("utf-8")).hexdigest()[:16]
             return self._machine_code
         except ImportError:
-            logger.error("缺少 wmi 依赖，无法获取机器码")
+            logger.warning("缺少 wmi 依赖，尝试系统指纹兜底")
         except IndexError:
-            logger.error("未读取到 CPU 或磁盘硬件信息")
+            logger.warning("未读取到 CPU 或磁盘硬件信息，尝试系统指纹兜底")
         except Exception as e:
-            logger.error(f"获取机器码失败: {e}", exc_info=True)
+            logger.warning(f"获取机器码失败，尝试系统指纹兜底: {e}")
+
+        fallback = self._fallback_machine_seed()
+        if fallback:
+            self._machine_code = hashlib.md5(fallback.encode("utf-8")).hexdigest()[:16]
+            logger.warning("已使用系统指纹兜底生成机器码")
+            return self._machine_code
 
         self._machine_code = "UNKNOWN"
+        logger.error("无法生成有效机器码")
         return "UNKNOWN"
+
+    def _fallback_machine_seed(self) -> str:
+        """Return a best-effort local fingerprint when WMI is unavailable."""
+        try:
+            host = platform.node().strip()
+            mac = uuid.getnode()
+            mac_text = f"{mac:012x}" if mac else ""
+            seed = f"{host}_{mac_text}".strip("_")
+            if seed:
+                return seed
+        except Exception:
+            pass
+        return ""
 
     def get_machine_code_hashed(self) -> str:
         return generate_machine_code_hash(self.get_machine_code())
@@ -247,26 +292,25 @@ class AuthManager:
     # ====================== Trial Mode ======================
     def check_trial(self) -> Tuple[bool, str, int]:
         """Return (valid, message, days_remaining)."""
-        existing_files = [p for p in self._trial_files() if p.exists()]
-        if not existing_files:
+        records, invalid_found, source_count = self._load_trial_records()
+        if source_count == 0:
             return True, "trial_available", 7
 
-        valid_records = []
-        invalid_found = False
-        for path in existing_files:
-            record = self._read_trial_record(path)
-            if record:
-                valid_records.append(record)
-            else:
-                invalid_found = True
-
-        if not valid_records:
+        if not records:
             return False, "trial_invalid", 0
 
-        record = min(valid_records, key=lambda item: float(item.get("trial_end", 0)))
+        record = min(records, key=lambda item: float(item.get("trial_end", 0)))
+        now = time.time()
+        last_seen = float(record.get("last_seen", record.get("trial_start", 0)))
+        if now < last_seen - 3600:
+            logger.warning("试用记录检测到系统时间回拨")
+            return False, "trial_clock_tamper", 0
+
         trial_end = float(record["trial_end"])
-        remaining = max(0, int((trial_end - time.time()) / 86400))
-        if time.time() < trial_end:
+        remaining = max(0, int((trial_end - now) / 86400))
+        if now < trial_end:
+            record["last_seen"] = max(now, last_seen)
+            record["signature"] = self._trial_signature(record)
             self._write_trial_record(record)
             return True, "trial_active", remaining
         if invalid_found:
@@ -282,6 +326,7 @@ class AuthManager:
                 "machine_code_hash": self.get_machine_code_hashed(),
                 "trial_start": now,
                 "trial_end": now + days * 86400,
+                "last_seen": now,
                 "days": int(days),
             }
             record["signature"] = self._trial_signature(record)
@@ -292,7 +337,8 @@ class AuthManager:
             return False
 
     def has_trial_available(self) -> bool:
-        return not any(path.exists() for path in self._trial_files())
+        _records, _invalid_found, source_count = self._load_trial_records()
+        return source_count == 0
 
     # ====================== Internal helpers ======================
     def _parse_license(self, license_key: str) -> Optional[dict]:
@@ -306,9 +352,9 @@ class AuthManager:
         expected = (machine_code_in_license or "").strip()
         if not expected:
             return "授权缺少机器码"
+        if expected == "UNKNOWN":
+            return "授权机器码无效"
         if current_machine == "UNKNOWN":
-            if expected == "UNKNOWN":
-                return ""
             return "无法获取本机机器码，不能验证授权绑定"
         if expected != current_machine:
             logger.warning(
@@ -318,11 +364,40 @@ class AuthManager:
         return ""
 
     def _trial_files(self) -> list[Path]:
-        appdata_path = get_appdata_dir() / ".rstao_trial"
         runtime_path = self.license_path.parent / ".rstao_trial"
-        if appdata_path == runtime_path:
-            return [runtime_path]
-        return [runtime_path, appdata_path]
+        migrate_file_once(
+            [get_runtime_dir() / ".rstao_trial", get_appdata_dir(create=False) / ".rstao_trial"],
+            runtime_path,
+        )
+        settings_path = get_settings_dir() / ".rstao_trial"
+        appdata_path = get_appdata_dir() / ".rstao_trial"
+        return [runtime_path, settings_path, appdata_path]
+
+    def _load_trial_records(self) -> tuple[list[dict], bool, int]:
+        records = []
+        invalid_found = False
+        source_count = 0
+
+        for path in self._trial_files():
+            if not path.exists():
+                continue
+            source_count += 1
+            record = self._read_trial_record(path)
+            if record:
+                records.append(record)
+            else:
+                invalid_found = True
+
+        registry_text = self._read_trial_registry()
+        if registry_text:
+            source_count += 1
+            record = self._parse_trial_record_text(registry_text)
+            if record:
+                records.append(record)
+            else:
+                invalid_found = True
+
+        return records, invalid_found, source_count
 
     def _trial_signature(self, record: dict) -> str:
         payload = {
@@ -330,6 +405,7 @@ class AuthManager:
             "machine_code_hash": record.get("machine_code_hash"),
             "trial_start": float(record.get("trial_start", 0)),
             "trial_end": float(record.get("trial_end", 0)),
+            "last_seen": float(record.get("last_seen", record.get("trial_start", 0))),
             "days": int(record.get("days", 0)),
         }
         data = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -338,10 +414,21 @@ class AuthManager:
 
     def _read_trial_record(self, path: Path) -> Optional[dict]:
         try:
-            record = json.loads(path.read_text(encoding="utf-8"))
+            return self._parse_trial_record_text(path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+
+    def _parse_trial_record_text(self, text: str) -> Optional[dict]:
+        try:
+            record = json.loads(text)
             if record.get("version") != _TRIAL_VERSION:
                 return None
             if record.get("machine_code_hash") != self.get_machine_code_hashed():
+                return None
+            trial_start = float(record.get("trial_start", 0))
+            trial_end = float(record.get("trial_end", 0))
+            last_seen = float(record.get("last_seen", trial_start))
+            if trial_start <= 0 or trial_end <= trial_start or last_seen < trial_start - 3600:
                 return None
             signature = record.get("signature", "")
             if not hmac.compare_digest(signature, self._trial_signature(record)):
@@ -359,6 +446,30 @@ class AuthManager:
                 self._hide_file(path)
             except Exception as e:
                 logger.warning(f"写入试用记录失败: {path} ({e})")
+        self._write_trial_registry(text)
+
+    def _read_trial_registry(self) -> str:
+        if sys.platform != "win32":
+            return ""
+        try:
+            import winreg
+
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _TRIAL_REG_PATH) as key:
+                value, _kind = winreg.QueryValueEx(key, _TRIAL_REG_NAME)
+                return str(value)
+        except Exception:
+            return ""
+
+    def _write_trial_registry(self, text: str):
+        if sys.platform != "win32":
+            return
+        try:
+            import winreg
+
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, _TRIAL_REG_PATH) as key:
+                winreg.SetValueEx(key, _TRIAL_REG_NAME, 0, winreg.REG_SZ, text)
+        except Exception as e:
+            logger.debug(f"写入试用注册表锚点失败: {e}")
 
     def _reset_anti_tamper(self):
         try:

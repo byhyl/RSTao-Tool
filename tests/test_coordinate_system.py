@@ -92,6 +92,15 @@ class TestCoordinateSystem:
             result = cs.wgs84_to_projection(116.4, 39.9, 3857)
             assert result is not None and len(result) == 2
 
+    def test_parse_csv_without_header_keeps_all_points(self, tmp_path):
+        path = tmp_path / "points.csv"
+        path.write_text("116.1,39.1\n116.2,39.2\n", encoding="utf-8")
+
+        ps = CoordinateSystem().parse_point_file(str(path))
+
+        assert ps.points == [(116.1, 39.1), (116.2, 39.2)]
+        assert ps.names == ["P1", "P2"]
+
 
 class TestPointSet:
     def test_default_values(self):

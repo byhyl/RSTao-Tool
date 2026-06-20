@@ -11,12 +11,23 @@ import numpy as np
 from PIL import Image
 
 from core.detection import DetectionOutput, ONNXDetector
-from data.image_io import get_image_metadata
+from core.model_registry import ModelConfig, ModelRegistry, infer_model_config
+from data.image_io import get_image_metadata, save_geotiff_like
 
+from .error_dialog import show_actionable_error
+from .import_preview_dialog import confirm_import
 from .raster_viewer import RasterViewer
 from .settings_manager import load_settings
 from .theme import FONT_NORMAL, FONT_SMALL, FONT_SUBTITLE, PANEL_STYLE, SECTION_STYLE, THEME
-from .ui_helpers import make_button, notify, run_background
+from .ui_helpers import (
+    make_button,
+    mark_project_dirty,
+    notify,
+    raster_geo_transform,
+    record_data_source,
+    record_project_result,
+    run_background,
+)
 
 
 class DetectionTab(ctk.CTkFrame):
@@ -30,8 +41,11 @@ class DetectionTab(ctk.CTkFrame):
             confidence=float(defaults.get("confidence", 0.5)),
             iou_threshold=float(defaults.get("iou_threshold", 0.45)),
         )
+        self.model_registry = ModelRegistry()
+        self.model_config = None
         self.current_image = None
         self.current_image_path = ""
+        self.current_geo_transform = None
         self.result_image = None
         self.last_output = None
         self._create_ui()
@@ -130,22 +144,66 @@ class DetectionTab(ctk.CTkFrame):
     def _on_conf_change(self, val):
         self.conf_label.configure(text=f"{float(val):.2f}")
         self.detector.confidence = float(val)
+        self._sync_model_config()
 
     def _on_iou_change(self, val):
         self.iou_label.configure(text=f"{float(val):.2f}")
         self.detector.iou_threshold = float(val)
+        self._sync_model_config()
+
+    def _sync_model_config(self):
+        if not self.model_config:
+            return
+        self.model_config.confidence = float(self.detector.confidence)
+        self.model_config.iou_threshold = float(self.detector.iou_threshold)
+        self.detector.model_config = self.model_config.to_dict()
+        self.model_registry.save(self.model_config)
 
     def _load_model(self):
         path = filedialog.askopenfilename(
             title="选择 ONNX 模型", filetypes=[("ONNX 模型", "*.onnx"), ("所有文件", "*.*")]
         )
         if path:
-            if self.detector.load_model(path):
-                name = os.path.basename(path)
-                self.model_path_var.set(name)
-                self.detect_status.configure(text="模型已加载", text_color=THEME["success"])
-            else:
-                messagebox.showerror("错误", "模型加载失败")
+            try:
+                if not confirm_import(self, path, "onnx"):
+                    return
+                if self.detector.load_model(path):
+                    self._apply_model_config(path)
+                    name = os.path.basename(path)
+                    self.model_path_var.set(name)
+                    self.detect_status.configure(text="模型已加载", text_color=THEME["success"])
+                    mark_project_dirty(self)
+                else:
+                    show_actionable_error(
+                        self,
+                        "模型加载失败",
+                        "ONNX 模型没有成功加载。",
+                        "请确认模型格式兼容 ONNX Runtime，并检查输入输出形状。",
+                    )
+            except Exception as exc:
+                show_actionable_error(
+                    self,
+                    "模型加载失败",
+                    "ONNX 模型预检或加载时发生异常。",
+                    "请确认模型文件没有损坏。",
+                    detail=str(exc),
+                )
+
+    def _apply_model_config(self, path):
+        config = self.model_registry.get(path)
+        if config is None:
+            config = infer_model_config(
+                path,
+                confidence=self.detector.confidence,
+                iou_threshold=self.detector.iou_threshold,
+            )
+        self.detector.apply_model_config(config)
+        self.model_config = config
+        self.model_registry.save(config)
+        self.conf_slider.set(config.confidence)
+        self.iou_slider.set(config.iou_threshold)
+        self._on_conf_change(config.confidence)
+        self._on_iou_change(config.iou_threshold)
 
     def _open_image(self):
         path = filedialog.askopenfilename(
@@ -153,12 +211,20 @@ class DetectionTab(ctk.CTkFrame):
             filetypes=[("影像文件", "*.png *.jpg *.jpeg *.tif *.tiff *.bmp *.webp")],
         )
         if path:
-            self._load_image_path(path)
+            if confirm_import(self, path, "image"):
+                self._load_image_path(path)
 
-    def _load_image_path(self, path):
+    def _load_image_path(self, path, record: bool = True):
         self.current_image = utils.imread_chinese(path)
         if self.current_image is not None:
             self.current_image_path = path
+            if record:
+                source = record_data_source(self, path, "raster")
+                self.current_geo_transform = (source or {}).get(
+                    "transform"
+                ) or raster_geo_transform(path)
+            else:
+                self.current_geo_transform = raster_geo_transform(path)
             self.result_image = None
             self.last_output = None
             self._show_image(self.current_image)
@@ -168,6 +234,8 @@ class DetectionTab(ctk.CTkFrame):
             notify(self, f"影像已加载：{os.path.basename(path)}", "success")
             if self.status_vars.get("image_size"):
                 self._update_image_metadata(path)
+            if record:
+                mark_project_dirty(self)
 
     def _run_detection(self):
         if not self.detector.available:
@@ -195,7 +263,13 @@ class DetectionTab(ctk.CTkFrame):
         def failed(err):
             self.btn_detect.configure(state=ctk.NORMAL, text="执行检测")
             self.detect_status.configure(text="检测失败", text_color=THEME["danger"])
-            messagebox.showerror("错误", f"检测失败：{err}")
+            show_actionable_error(
+                self,
+                "检测失败",
+                "目标检测没有成功完成。",
+                "请检查模型输入尺寸、类别配置和影像格式。",
+                detail=str(err),
+            )
 
         run_background(self, work, done, failed)
 
@@ -229,10 +303,25 @@ class DetectionTab(ctk.CTkFrame):
             messagebox.showwarning("提示", "请先执行检测")
             return
         path = filedialog.asksaveasfilename(
-            defaultextension=".png", filetypes=[("PNG", "*.png"), ("JPEG", "*.jpg")]
+            defaultextension=".png",
+            filetypes=[("PNG", "*.png"), ("JPEG", "*.jpg"), ("GeoTIFF", "*.tif")],
         )
         if path:
-            utils.imwrite_chinese(path, self.result_image)
+            if self._is_tiff(path) and self._is_tiff(self.current_image_path):
+                save_geotiff_like(
+                    self.current_image_path,
+                    self.result_image,
+                    path,
+                    color_order="BGR",
+                )
+            else:
+                utils.imwrite_chinese(path, self.result_image)
+                if self._is_tiff(self.current_image_path) and not self._is_tiff(path):
+                    notify(
+                        self,
+                        "Spatial reference is not preserved in PNG/JPEG exports.",
+                        "warning",
+                    )
             metrics = {}
             if self.last_output is not None:
                 metrics = {
@@ -252,9 +341,13 @@ class DetectionTab(ctk.CTkFrame):
             )
             notify(self, f"结果已保存：{path}", "success")
 
+    @staticmethod
+    def _is_tiff(path):
+        return os.path.splitext(str(path))[1].lower() in (".tif", ".tiff")
+
     def _show_image(self, img):
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        self.viewer.load(image_array=rgb)
+        self.viewer.load(image_array=rgb, geo_transform=self.current_geo_transform)
 
     def _update_image_metadata(self, path):
         try:
@@ -267,12 +360,11 @@ class DetectionTab(ctk.CTkFrame):
             self.status_vars["image_size"].set(f"{w}×{h}")
 
     def _record_result(self, category, title, **kwargs):
-        top = self.winfo_toplevel()
-        pm = getattr(top, "project_manager", None)
-        if pm and pm.current_project:
-            kwargs["inputs"] = [p for p in kwargs.get("inputs", []) if p]
-            kwargs["outputs"] = [p for p in kwargs.get("outputs", []) if p]
-            pm.add_result_record(category, title, **kwargs)
+        if self.model_config:
+            kwargs.setdefault("model_config", self.model_config.to_dict())
+        elif self.detector.model_config:
+            kwargs.setdefault("model_config", self.detector.model_config)
+        return record_project_result(self, category, title, **kwargs)
 
     def get_state(self):
         return {
@@ -280,6 +372,7 @@ class DetectionTab(ctk.CTkFrame):
             "image_path": self.current_image_path,
             "confidence": self.detector.confidence,
             "iou_threshold": self.detector.iou_threshold,
+            "model_config": self.model_config.to_dict() if self.model_config else {},
         }
 
     def set_state(self, state):
@@ -294,12 +387,23 @@ class DetectionTab(ctk.CTkFrame):
 
         model_path = state.get("model_path", "")
         if model_path and os.path.exists(model_path) and self.detector.load_model(model_path):
+            config_payload = state.get("model_config") or {}
+            if config_payload:
+                self.model_config = ModelConfig.from_dict(config_payload)
+                self.detector.apply_model_config(self.model_config)
+                self.model_registry.save(self.model_config)
+                self.conf_slider.set(self.model_config.confidence)
+                self.iou_slider.set(self.model_config.iou_threshold)
+                self._on_conf_change(self.model_config.confidence)
+                self._on_iou_change(self.model_config.iou_threshold)
+            else:
+                self._apply_model_config(model_path)
             self.model_path_var.set(os.path.basename(model_path))
             self.detect_status.configure(text="模型已加载", text_color=THEME["success"])
 
         image_path = state.get("image_path", "")
         if image_path and os.path.exists(image_path):
-            self._load_image_path(image_path)
+            self._load_image_path(image_path, record=False)
 
     def destroy(self):
         """清理资源"""

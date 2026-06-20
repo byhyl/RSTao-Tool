@@ -27,9 +27,21 @@ from tkcalendar import DateEntry
 # 导入公共加密模块
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from common.paths import get_admin_data_dir, get_appdata_dir, get_runtime_dir, migrate_file_once
+
 
 # ====================== 配置 ======================
 from .tabs import OfflineKeyTab, OnlineCodeTab
+
+
+ADMIN_CONFIG_FILE = get_admin_data_dir() / "admin_config.json"
+migrate_file_once(
+    [
+        get_runtime_dir() / ".admin_config.json",
+        get_appdata_dir(create=False) / ".admin_config.json",
+    ],
+    ADMIN_CONFIG_FILE,
+)
 
 
 @dataclass
@@ -51,7 +63,7 @@ class ToolConfig:
     BTN_DANGER_HOVER: str = "#dc2626"
     BTN_WARNING: str = "#f59e0b"
     BTN_WARNING_HOVER: str = "#d97706"
-    CONFIG_FILE: Path = Path(__file__).parent.parent / ".admin_config.json"
+    CONFIG_FILE: Path = ADMIN_CONFIG_FILE
 
 
 # ====================== 日志 ======================
@@ -97,6 +109,7 @@ class AdminTool(ctk.CTk):
 
     def _save_config(self):
         try:
+            self.config.CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
             with open(self.config.CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(self._server_config, f, ensure_ascii=False, indent=2)
         except Exception:
@@ -313,7 +326,13 @@ class AdminTool(ctk.CTk):
             messagebox.showinfo("提示", "服务器已在运行中")
             return
 
-        self._server_port = int(self._server_port_entry.get().strip() or "18080")
+        try:
+            self._server_port = int(self._server_port_entry.get().strip() or "18080")
+            if not 1 <= self._server_port <= 65535:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("错误", "端口必须是 1-65535 之间的整数")
+            return
         server_script = str(Path(__file__).parent.parent / "server" / "activation_server.py")
         # Fallback path if server script is in _admin_repo
         if not Path(server_script).exists():
@@ -333,7 +352,7 @@ class AdminTool(ctk.CTk):
         # 直接启动子进程，不读stdout
         try:
             self._server_process = subprocess.Popen(
-                [sys.executable, server_script],
+                [sys.executable, server_script, "--port", str(self._server_port)],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
@@ -434,16 +453,21 @@ class AdminTool(ctk.CTk):
             with urllib.request.urlopen(req, timeout=5) as resp:
                 result = json.loads(resp.read().decode())
             if result.get("success"):
-                token = result["token"]
-                self._token_entry.delete(0, "end")
-                self._token_entry.insert(0, token)
-                self._server_config["admin_token"] = token
-                self._append_server_log(f"令牌已自动获取并保存\n")
-                self._save_config()
-                self._conn_status.configure(text="● 已连接", text_color="#10b981")
-                self.after(100, self._online_tab._refresh_online_data)
+                self.after(0, lambda token=result["token"]: self._apply_auto_token(token))
         except Exception:
             pass
+
+    def _apply_auto_token(self, token: str):
+        """Apply an auto-fetched admin token on the Tk main thread."""
+        if self._closing:
+            return
+        self._token_entry.delete(0, "end")
+        self._token_entry.insert(0, token)
+        self._server_config["admin_token"] = token
+        self._append_server_log("令牌已自动获取并保存\n")
+        self._save_config()
+        self._conn_status.configure(text="● 已连接", text_color="#10b981")
+        self.after(100, self._online_tab._refresh_online_data)
 
     def _stop_server(self):
         """停止内嵌服务器"""
@@ -536,4 +560,5 @@ class AdminTool(ctk.CTk):
 
     def destroy(self):
         self._closing = True
+        self._stop_server()
         super().destroy()

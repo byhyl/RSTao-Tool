@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 import tkinter as tk
 from datetime import datetime
@@ -11,18 +12,22 @@ from PIL import Image
 
 from common.i18n import load_language, t
 from common.logger import logger
+from common.version import APP_AUTHOR, APP_VERSION, RELEASE_DATE
 from core.project_manager import ProjectManager
 
 from .batch_dialog import BatchDialog
 from .coordinate_tab import CoordinateTab
 from .detection_tab import DetectionTab
+from .error_dialog import show_actionable_error
 
 # 本地模块导入
 from .feature_tab import FeatureTab
+from .image_processing_tab import ImageProcessingTab
 from .license_info import Config, LicenseManager
 from .log_viewer_dialog import LogViewerDialog
 from .match_tab import MatchTab
 from .plugin_dialog import PluginDialog
+from .resource_panel import ResourcePanel
 from .result_history_dialog import ResultHistoryDialog
 from .settings_manager import load_settings, save_settings
 from .settings_tab import SettingsTab
@@ -57,14 +62,39 @@ def load_icon(icon_name: str, size: tuple[int, int] = (24, 24)) -> Optional[ctk.
     return None
 
 
+def _safe_path_stat(path: str | Path):
+    try:
+        return Path(path).stat()
+    except (OSError, ValueError):
+        return None
+
+
+def _safe_path_exists(path: str | Path) -> bool:
+    return _safe_path_stat(path) is not None
+
+
 class WelcomePage(ctk.CTkFrame):
     """欢迎页 - Hero 布局"""
 
-    def __init__(self, parent, new_project_callback, open_project_callback, open_recent_callback):
+    def __init__(
+        self,
+        parent,
+        new_project_callback,
+        open_project_callback,
+        open_recent_callback,
+        remove_recent_callback,
+        open_location_callback,
+        prune_recent_callback,
+        clear_recent_callback,
+    ):
         super().__init__(parent, fg_color=THEME["bg"])
         self.new_project_callback = new_project_callback
         self.open_project_callback = open_project_callback
         self.open_recent_callback = open_recent_callback
+        self.remove_recent_callback = remove_recent_callback
+        self.open_location_callback = open_location_callback
+        self.prune_recent_callback = prune_recent_callback
+        self.clear_recent_callback = clear_recent_callback
 
         hero = ctk.CTkFrame(self, fg_color="transparent")
         hero.pack(pady=(54, 22))
@@ -122,6 +152,32 @@ class WelcomePage(ctk.CTkFrame):
             font=("Microsoft YaHei UI", 11, "bold"),
             text_color=THEME["text_muted"],
         ).pack(pady=(34, 8))
+        recent_actions = ctk.CTkFrame(self, fg_color="transparent")
+        recent_actions.pack(fill="x", padx=300, pady=(0, 4))
+        ctk.CTkButton(
+            recent_actions,
+            text="清理失效",
+            width=72,
+            height=24,
+            font=("Microsoft YaHei UI", 10),
+            fg_color="transparent",
+            border_width=1,
+            border_color=THEME["border"],
+            text_color=THEME["text_secondary"],
+            command=self.prune_recent_callback,
+        ).pack(side="right", padx=3)
+        ctk.CTkButton(
+            recent_actions,
+            text="清空",
+            width=54,
+            height=24,
+            font=("Microsoft YaHei UI", 10),
+            fg_color="transparent",
+            border_width=1,
+            border_color=THEME["border"],
+            text_color=THEME["text_secondary"],
+            command=self.clear_recent_callback,
+        ).pack(side="right", padx=3)
         self.recent_frame = ctk.CTkFrame(
             self,
             fg_color="transparent",
@@ -146,11 +202,12 @@ class WelcomePage(ctk.CTkFrame):
             return
         for path in display:
             p = Path(path)
-            exists = p.exists()
+            stat = _safe_path_stat(p)
+            exists = stat is not None
             name = p.stem[:36] + "..." if len(p.stem) > 36 else p.stem
             detail = str(p.parent)
             if exists:
-                detail = f"{detail}  ·  {datetime.fromtimestamp(p.stat().st_mtime).strftime('%Y-%m-%d %H:%M')}"
+                detail = f"{detail}  ·  {datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M')}"
             row = ctk.CTkFrame(self.recent_frame, fg_color="transparent")
             row.pack(fill="x", padx=10, pady=5)
             text_col = THEME["text_secondary"] if exists else THEME["text_muted"]
@@ -179,6 +236,29 @@ class WelcomePage(ctk.CTkFrame):
                 state=ctk.NORMAL if exists else ctk.DISABLED,
                 command=lambda pp=path: self.open_recent_callback(pp),
             ).pack(side="right", padx=6)
+            ctk.CTkButton(
+                row,
+                text="位置",
+                width=48,
+                height=26,
+                font=("Microsoft YaHei UI", 10),
+                fg_color="transparent",
+                hover_color=THEME["hover"],
+                text_color=THEME["text_secondary"] if exists else THEME["text_muted"],
+                state=ctk.NORMAL if exists else ctk.DISABLED,
+                command=lambda pp=path: self.open_location_callback(pp),
+            ).pack(side="right", padx=2)
+            ctk.CTkButton(
+                row,
+                text="移除",
+                width=48,
+                height=26,
+                font=("Microsoft YaHei UI", 10),
+                fg_color="transparent",
+                hover_color=THEME["hover"],
+                text_color=THEME["text_muted"],
+                command=lambda pp=path: self.remove_recent_callback(pp),
+            ).pack(side="right", padx=2)
 
 
 class MainWindow(ctk.CTk):
@@ -210,9 +290,11 @@ class MainWindow(ctk.CTk):
             "features": ctk.StringVar(value="0"),
             "zoom": ctk.StringVar(value="100%"),
             "message": ctk.StringVar(value=""),
+            "project_state": ctk.StringVar(value="未打开项目"),
         }
 
         self.feature_tab: Optional[FeatureTab] = None
+        self.image_processing_tab: Optional[ImageProcessingTab] = None
         self.match_tab: Optional[MatchTab] = None
         self.vector_tab: Optional[VectorTab] = None
 
@@ -257,7 +339,14 @@ class MainWindow(ctk.CTk):
     def show_welcome(self):
         self._clear_main_container()
         self.welcome_page = WelcomePage(
-            self.main_container, self.new_project, self.open_project, self.open_recent_project
+            self.main_container,
+            self.new_project,
+            self.open_project,
+            self.open_recent_project,
+            self.remove_recent_project,
+            self.open_recent_location,
+            self.prune_missing_recent_projects,
+            self.clear_recent_projects,
         )
         self.welcome_page.update_recent_list(self.project_manager.recent_projects)
         self.welcome_page.pack(fill="both", expand=True)
@@ -266,19 +355,31 @@ class MainWindow(ctk.CTk):
         self._clear_main_container()
         try:
             self.create_menu_bar()
-            self.content_frame = ctk.CTkFrame(self.main_container, fg_color=THEME["bg"])
-            self.content_frame.pack(fill="both", expand=True)
+            self.workspace_frame = ctk.CTkFrame(self.main_container, fg_color=THEME["bg"])
+            self.workspace_frame.pack(fill="both", expand=True)
+            self.resource_panel = ResourcePanel(self.workspace_frame, self)
+            self.resource_panel.pack(side="left", fill="y", padx=(8, 4), pady=8)
+            self.content_frame = ctk.CTkFrame(self.workspace_frame, fg_color=THEME["bg"])
+            self.content_frame.pack(side="right", fill="both", expand=True)
             self.create_statusbar()
             self.init_panels()
+            self.refresh_resource_panel()
             if self.project_manager.current_project:
                 project_name = self.project_manager.current_project.get("project_name", "未知项目")
                 self.project_name_label.configure(text=project_name)
                 self.restore_project_state()
+                self._update_project_state()
             self._start_auto_save()
             logger.info("主工作界面初始化完成")
         except Exception as e:
             logger.error("初始化主界面失败", exc_info=True)
-            messagebox.showerror("错误", f"界面初始化失败：{str(e)}")
+            show_actionable_error(
+                self,
+                "界面初始化失败",
+                "主工作界面没有成功初始化。",
+                "请查看日志；如果刚恢复项目，可尝试重新打开项目文件。",
+                detail=str(e),
+            )
             self.show_welcome()
 
     # ---- menu bar ----
@@ -304,6 +405,7 @@ class MainWindow(ctk.CTk):
             [
                 (f"{t('menu.new', '新建项目')}      Ctrl+N", self.new_project),
                 (f"{t('menu.open', '打开项目')}      Ctrl+O", self.open_project),
+                ("导入资源...", self.import_resources),
                 ("---", None),
                 (f"{t('menu.save', '保存')}      Ctrl+S", self.save_project),
                 (f"{t('menu.export', '导出')}      Ctrl+E", self.export_current),
@@ -316,6 +418,7 @@ class MainWindow(ctk.CTk):
             "功能",
             [
                 (t("tab.feature", "特征检测"), lambda: self.switch_panel("feature")),
+                ("图像处理", lambda: self.switch_panel("image_processing")),
                 (t("tab.match", "影像匹配"), lambda: self.switch_panel("match")),
                 (t("tab.vector", "矢量编辑"), lambda: self.switch_panel("vector")),
                 (t("tab.coordinate", "坐标转换"), lambda: self.switch_panel("coordinate")),
@@ -456,12 +559,14 @@ class MainWindow(ctk.CTk):
         self.panels = {}
         self.current_panel = None
         self.panels["feature"] = FeatureTab(self.content_frame, self.status_vars)
+        self.panels["image_processing"] = ImageProcessingTab(self.content_frame, self.status_vars)
         self.panels["match"] = MatchTab(self.content_frame, self.status_vars)
         self.panels["vector"] = VectorTab(self.content_frame, self.status_vars)
         self.panels["coordinate"] = CoordinateTab(self.content_frame, self.status_vars)
         self.panels["detection"] = DetectionTab(self.content_frame, self.status_vars)
         self.panels["settings"] = SettingsTab(self.content_frame)
         self.feature_tab = self.panels["feature"]
+        self.image_processing_tab = self.panels["image_processing"]
         self.match_tab = self.panels["match"]
         self.vector_tab = self.panels["vector"]
         self.coordinate_tab = self.panels["coordinate"]
@@ -488,18 +593,36 @@ class MainWindow(ctk.CTk):
             file_path = event.data.strip("{}")
             if any(
                 file_path.lower().endswith(ext)
-                for ext in [".tif", ".tiff", ".png", ".jpg", ".jpeg", ".bmp"]
+                for ext in [".tif", ".tiff", ".png", ".jpg", ".jpeg", ".bmp", ".img", ".jp2"]
             ):
                 self._load_dropped_image(file_path)
             elif file_path.lower().endswith(".shp"):
                 self._load_dropped_shapefile(file_path)
+            elif any(
+                file_path.lower().endswith(ext)
+                for ext in [
+                    ".pcd",
+                    ".las",
+                    ".laz",
+                    ".xyz",
+                    ".pts",
+                    ".obj",
+                    ".osgb",
+                    ".ply",
+                    ".onnx",
+                    ".pt",
+                    ".pth",
+                    ".engine",
+                ]
+            ):
+                self.add_resource_path(file_path)
             elif file_path.lower().endswith(".rstao"):
                 self._load_project(file_path)
         except Exception:
             pass
 
     def _load_dropped_image(self, path):
-        self.switch_panel("feature")
+        self.switch_panel("image_processing")
         if hasattr(self, "current_panel") and hasattr(self.current_panel, "load_image_silent"):
             self.current_panel.load_image_silent(path)
 
@@ -507,6 +630,22 @@ class MainWindow(ctk.CTk):
         self.switch_panel("vector")
         if hasattr(self, "current_panel") and hasattr(self.current_panel, "load_shp_direct"):
             self.current_panel.load_shp_direct(path)
+
+    def import_resources(self):
+        if hasattr(self, "resource_panel"):
+            self.resource_panel.import_resources()
+
+    def add_resource_path(self, path: str, source_type: str = None):
+        if not self.project_manager.current_project:
+            messagebox.showwarning("提示", "请先创建或打开一个项目")
+            return None
+        if hasattr(self, "resource_panel"):
+            return self.resource_panel.add_path(path, source_type=source_type)
+        return None
+
+    def refresh_resource_panel(self):
+        if hasattr(self, "resource_panel") and self.resource_panel.winfo_exists():
+            self.resource_panel.refresh()
 
     def _on_delete_key(self):
         """处理 Delete 快捷键。"""
@@ -518,6 +657,7 @@ class MainWindow(ctk.CTk):
             self.project_manager.current_project
             and hasattr(self, "current_panel")
             and self.current_panel
+            and self.project_manager.is_dirty
         ):
             if messagebox.askyesno("提示", "当前项目未保存，是否保存？"):
                 return self.save_project()
@@ -542,7 +682,7 @@ class MainWindow(ctk.CTk):
             text_color=THEME["text_muted"],
         )
         self.status_message_label.pack(side="left", fill="x", expand=True, padx=10)
-        for vn in ["zoom", "features", "algorithm", "image_size"]:
+        for vn in ["zoom", "features", "algorithm", "image_size", "project_state"]:
             ctk.CTkLabel(
                 self.statusbar,
                 textvariable=self.status_vars[vn],
@@ -592,12 +732,24 @@ class MainWindow(ctk.CTk):
         try:
             if self.project_manager.new_project(project_name, save_path):
                 self.show_main_interface()
+                self._update_project_state()
                 self.show_status("项目创建成功", "success")
             else:
-                messagebox.showerror("错误", "项目创建失败")
+                show_actionable_error(
+                    self,
+                    "项目创建失败",
+                    "项目文件没有成功创建。",
+                    "请检查保存目录是否可写，或换一个目录重试。",
+                )
         except Exception as e:
             logger.error("创建新项目失败", exc_info=True)
-            messagebox.showerror("错误", f"创建项目失败：{str(e)}")
+            show_actionable_error(
+                self,
+                "创建项目失败",
+                "新项目创建过程中出现异常。",
+                "请检查项目名称和保存路径后重试。",
+                detail=str(e),
+            )
 
     def open_project(self):
         if not self._prompt_save_project():
@@ -615,6 +767,30 @@ class MainWindow(ctk.CTk):
             return
         self._load_project(path)
 
+    def remove_recent_project(self, path: str):
+        self.project_manager.remove_recent_project(path)
+        if hasattr(self, "welcome_page"):
+            self.welcome_page.update_recent_list(self.project_manager.recent_projects)
+
+    def prune_missing_recent_projects(self):
+        self.project_manager.prune_missing_recent_projects()
+        if hasattr(self, "welcome_page"):
+            self.welcome_page.update_recent_list(self.project_manager.recent_projects)
+
+    def clear_recent_projects(self):
+        if messagebox.askyesno("确认", "清空最近项目列表？"):
+            self.project_manager.clear_recent_projects()
+            if hasattr(self, "welcome_page"):
+                self.welcome_page.update_recent_list(self.project_manager.recent_projects)
+
+    def open_recent_location(self, path: str):
+        parent = Path(path).parent
+        if _safe_path_exists(parent):
+            try:
+                os.startfile(str(parent))
+            except OSError:
+                self.remove_recent_project(path)
+
     def _load_project(self, path: str):
         try:
             if self.project_manager.check_backup(path):
@@ -628,13 +804,25 @@ class MainWindow(ctk.CTk):
             if project:
                 project_name = project.get("project_name", "未知项目")
                 self.show_main_interface()
+                self._update_project_state()
                 self.show_status(f"项目 {project_name} 加载成功", "success")
             else:
-                messagebox.showerror("错误", "项目加载失败，文件可能已损坏")
+                show_actionable_error(
+                    self,
+                    "项目加载失败",
+                    "项目文件没有成功加载，文件可能已损坏。",
+                    "请尝试从自动保存备份恢复，或检查文件是否被其它程序占用。",
+                )
                 self.show_welcome()
         except Exception as e:
             logger.error(f"加载项目失败 {path}", exc_info=True)
-            messagebox.showerror("错误", f"加载项目失败：{str(e)}")
+            show_actionable_error(
+                self,
+                "加载项目失败",
+                "打开项目时发生异常。",
+                "请确认项目文件存在且格式正确。",
+                detail=str(e),
+            )
             self.show_welcome()
 
     def save_project(self, notify: bool = True, autosave: bool = False):
@@ -648,6 +836,11 @@ class MainWindow(ctk.CTk):
 
         try:
             feature_state = self.feature_tab.get_state() if self.feature_tab else {}
+            image_processing_state = (
+                self.image_processing_tab.get_state()
+                if self.image_processing_tab and hasattr(self.image_processing_tab, "get_state")
+                else {}
+            )
             match_state = self.match_tab.get_state() if self.match_tab else {}
             vector_state = self.vector_tab.get_state() if self.vector_tab else {}
             coordinate_state = (
@@ -667,6 +860,7 @@ class MainWindow(ctk.CTk):
             )
             current_tab = {
                 "feature": "特征检测",
+                "image_processing": "图像处理",
                 "match": "影像匹配",
                 "vector": "矢量编辑",
                 "coordinate": "坐标转换",
@@ -676,6 +870,7 @@ class MainWindow(ctk.CTk):
 
             if self.project_manager.save_project(
                 feature_state=feature_state,
+                image_processing_state=image_processing_state,
                 match_state=match_state,
                 vector_state=vector_state,
                 current_tab=current_tab,
@@ -685,17 +880,29 @@ class MainWindow(ctk.CTk):
                 autosave=autosave,
             ):
                 logger.info(f"项目保存成功：{self.project_manager.project_path}")
+                self._update_project_state()
                 if notify and not autosave:
                     self.show_status("项目保存成功", "success")
                 return True
             else:
                 if notify:
-                    messagebox.showerror("错误", "项目保存失败")
+                    show_actionable_error(
+                        self,
+                        "项目保存失败",
+                        "项目文件没有成功写入磁盘。",
+                        "请检查磁盘空间、文件权限，或换一个目录另存为。",
+                    )
                 return False
         except Exception as e:
             logger.error("保存项目失败", exc_info=True)
             if notify:
-                messagebox.showerror("错误", f"保存项目失败：{str(e)}")
+                show_actionable_error(
+                    self,
+                    "保存项目失败",
+                    "保存项目时发生异常。",
+                    "请检查路径权限；当前窗口不会强制退出。",
+                    detail=str(e),
+                )
             return False
 
     def save_project_as(self):
@@ -725,9 +932,16 @@ class MainWindow(ctk.CTk):
 
             if self.project_name_label:
                 self.project_name_label.configure(text=f"项目: {project_name}")
+            self._update_project_state()
         except Exception as e:
             logger.error("项目另存为失败", exc_info=True)
-            messagebox.showerror("错误", f"另存为失败：{str(e)}")
+            show_actionable_error(
+                self,
+                "另存为失败",
+                "项目没有保存到新位置。",
+                "请检查目标目录是否可写。",
+                detail=str(e),
+            )
 
     def restore_project_state(self):
         project = self.project_manager.current_project
@@ -739,6 +953,7 @@ class MainWindow(ctk.CTk):
             if current_tab:
                 tab_map = {
                     "特征检测": "feature",
+                    "图像处理": "image_processing",
                     "影像匹配": "match",
                     "矢量编辑": "vector",
                     "坐标转换": "coordinate",
@@ -753,6 +968,12 @@ class MainWindow(ctk.CTk):
 
             if self.feature_tab and project.get("feature_tab"):
                 self.feature_tab.set_state(project["feature_tab"])
+            if (
+                self.image_processing_tab
+                and project.get("image_processing_tab")
+                and hasattr(self.image_processing_tab, "set_state")
+            ):
+                self.image_processing_tab.set_state(project["image_processing_tab"])
             if self.match_tab and project.get("match_tab"):
                 self.match_tab.set_state(project["match_tab"])
             if self.vector_tab and project.get("vector_tab"):
@@ -797,7 +1018,8 @@ class MainWindow(ctk.CTk):
             pass
         try:
             self._stop_auto_save()
-            self._prompt_save_project()
+            if not self._prompt_save_project():
+                return
 
             import matplotlib.pyplot as plt
 
@@ -826,6 +1048,10 @@ class MainWindow(ctk.CTk):
         self._auto_save_job = None
         if self.project_manager.current_project:
             self.save_project(notify=False, autosave=True)
+            if self.project_manager.current_project:
+                self.status_vars["project_state"].set(
+                    f"自动保存 {datetime.now().strftime('%H:%M:%S')}"
+                )
             self._start_auto_save()
 
     def _check_backup_recovery(self):
@@ -863,6 +1089,8 @@ class MainWindow(ctk.CTk):
         try:
             if cur_tab in ("特征检测", "feature") and self.feature_tab:
                 self.feature_tab.save_result()
+            elif cur_tab in ("图像处理", "image_processing") and self.image_processing_tab:
+                self.image_processing_tab.save_result()
             elif cur_tab in ("影像匹配", "match") and self.match_tab:
                 self.match_tab.save_result()
             elif cur_tab in ("矢量编辑", "vector") and self.vector_tab:
@@ -894,6 +1122,7 @@ class MainWindow(ctk.CTk):
         from tkinter import filedialog as fd
 
         from core.report_generator import FeatureStats, MatchStats, ReportGenerator
+        from core.spatial_reference import format_spatial_ref
 
         path = fd.asksaveasfilename(
             defaultextension=".html", filetypes=[("HTML 报告", "*.html")], title="导出精度报告"
@@ -902,7 +1131,17 @@ class MainWindow(ctk.CTk):
             return
         info = {}
         if self.project_manager.current_project:
-            info["项目名称"] = self.project_manager.current_project.get("project_name", "")
+            project = self.project_manager.current_project
+            info["项目名称"] = project.get("project_name", "")
+            data_sources = project.get("data_sources", [])
+            result_history = project.get("result_history", [])
+            if data_sources:
+                info["数据源数量"] = str(len(data_sources))
+                info["空间参考"] = "\n".join(
+                    format_spatial_ref(source) for source in data_sources[:8]
+                )
+            if result_history:
+                info["结果记录"] = str(len(result_history))
         if (
             hasattr(self, "match_tab")
             and self.match_tab
@@ -934,6 +1173,29 @@ class MainWindow(ctk.CTk):
     def open_batch_dialog(self):
         BatchDialog(self)
 
+    def _mark_project_dirty(self):
+        if self.project_manager.current_project:
+            self.project_manager.mark_dirty()
+            self._update_project_state()
+
+    def _update_project_state(self):
+        project = self.project_manager.current_project
+        if not project:
+            self.title("RSTao Remote Sensing Studio")
+            self.status_vars["project_state"].set("未打开项目")
+            return
+        name = project.get("project_name", "未知项目")
+        dirty_prefix = "* " if self.project_manager.is_dirty else ""
+        self.title(f"{dirty_prefix}{name} - RSTao Remote Sensing Studio")
+        if self.project_name_label:
+            self.project_name_label.configure(text=f"{dirty_prefix}{name}")
+        if self.project_manager.is_dirty:
+            self.status_vars["project_state"].set("有未保存修改")
+        elif self.project_manager.last_saved_at:
+            self.status_vars["project_state"].set(f"已保存 {self.project_manager.last_saved_at}")
+        else:
+            self.status_vars["project_state"].set("已保存")
+
     def show_about(self):
         lic = LicenseManager.get_license_info()
         about_text = f"""
@@ -941,9 +1203,9 @@ RSTao Remote Sensing Studio
 ===========================
 基于 Python+OpenCV+CustomTkinter 开发
 
-作者：RSTao
-版本：1.0.0
-发布日期：2026-06-02
+作者：{APP_AUTHOR}
+版本：{APP_VERSION}
+发布日期：{RELEASE_DATE}
 
 —————————— 真实软件授权信息 ——————————
 授权状态：{lic['status']}

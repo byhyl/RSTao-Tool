@@ -18,6 +18,48 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "justMyCode": false
+        },
+        {
+            "name": "🌐 RSTao-Web 网页端",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "C:/Users/25854/anaconda3/envs/pack_env/python.exe",
+            "program": "${workspaceFolder}/RSTao-Web/run.py",
+            "args": [
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8765"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/RSTao-Web",
+            "justMyCode": false,
+            "serverReadyAction": {
+                "pattern": "RSTao-Web running at (http://127\\.0\\.0\\.1:8765)",
+                "uriFormat": "%s",
+                "action": "openExternally"
+            }
+        },
+        {
+            "name": "🛠 RSTao-Web 管理端",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "C:/Users/25854/anaconda3/envs/pack_env/python.exe",
+            "program": "${workspaceFolder}/RSTao-Web/admin.py",
+            "args": [
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8764"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/RSTao-Web",
+            "justMyCode": false,
+            "serverReadyAction": {
+                "pattern": "RSTao-Web Admin running at (http://127\\.0\\.0\\.1:8764)",
+                "uriFormat": "%s",
+                "action": "openExternally"
+            }
         }
     ]
 }

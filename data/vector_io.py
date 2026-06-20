@@ -1,13 +1,28 @@
-# data/vector_io.py
-import ezdxf
-import fiona
-
 from common.exceptions import FileReadError, FileWriteError
 from common.logger import logger
 
 
+def _require_fiona():
+    try:
+        import fiona
+
+        return fiona
+    except ImportError as exc:
+        raise FileReadError("读取/保存 SHP 需要安装 fiona。") from exc
+
+
+def _require_ezdxf():
+    try:
+        import ezdxf
+
+        return ezdxf
+    except ImportError as exc:
+        raise FileWriteError("导出 DWG/DXF 需要安装 ezdxf。") from exc
+
+
 def read_shp(file_path):
     try:
+        fiona = _require_fiona()
         logger.info(f"读取矢量: {file_path}")
         with fiona.open(file_path, "r", encoding="utf-8") as src:
             features = list(src)
@@ -26,6 +41,7 @@ def read_shp(file_path):
 
 def save_shp(data, file_path):
     try:
+        fiona = _require_fiona()
         logger.info(f"保存SHP: {file_path}")
         with fiona.open(
             file_path,
@@ -42,9 +58,9 @@ def save_shp(data, file_path):
         raise FileWriteError(f"保存SHP失败: {str(e)}")
 
 
-# ===================== ✅【新增】导出标准CAD样式DWG/DXF =====================
 def save_dwg(data, file_path):
     try:
+        ezdxf = _require_ezdxf()
         logger.info(f"保存DWG/DXF: {file_path}")
         doc = ezdxf.new(dxfversion="R2010")
         msp = doc.modelspace()

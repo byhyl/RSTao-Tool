@@ -39,3 +39,14 @@ def test_yolov8_channel_first_output_is_transposed():
     assert results[0].class_id == 0
     assert results[0].class_name == "A"
     assert results[0].bbox == (25, 25, 35, 35)
+
+
+def test_six_column_boxes_scale_to_original_size():
+    detector = ONNXDetector(confidence=0.5)
+    detector._input_shape = (640, 640)
+
+    output = [np.array([[[100, 100, 200, 200, 0.9, 1]]], dtype=np.float32)]
+    results = detector._postprocess(output, (1280, 1280))
+
+    assert len(results) == 1
+    assert results[0].bbox == (200, 200, 400, 400)

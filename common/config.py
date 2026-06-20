@@ -1,19 +1,17 @@
 import os
 from pathlib import Path
 
+from common.paths import get_logs_dir, get_temp_dir
+from common.version import APP_AUTHOR, APP_COPYRIGHT, APP_NAME, APP_VERSION
+
 # 项目根目录（自动计算，永远正确）
 BASE_DIR = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # ====================== 软件基本信息 ======================
-APP_NAME = "RSTao-Tool"
-APP_VERSION = "1.0"
-APP_AUTHOR = "RSTao"
-APP_COPYRIGHT = "© 2026 RSTao 保留所有权利"
-
 # ====================== 路径配置 ======================
 ICON_PATH = BASE_DIR / "assets" / "icon.ico"
-LOG_DIR = BASE_DIR / "logs"
-TEMP_DIR = BASE_DIR / "temp"
+LOG_DIR = get_logs_dir()
+TEMP_DIR = get_temp_dir()
 
 # 自动创建目录
 LOG_DIR.mkdir(parents=True, exist_ok=True)

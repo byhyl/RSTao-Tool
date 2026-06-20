@@ -1,22 +1,30 @@
-# ui/__init__.py
-from .batch_dialog import BatchDialog
-from .coordinate_tab import CoordinateTab
-from .detection_tab import DetectionTab
-from .feature_tab import FeatureTab
-from .main_window import MainWindow
-from .match_tab import MatchTab  # 确保导出 MatchTab
-from .plugin_dialog import PluginDialog
-from .settings_tab import SettingsTab
-from .vector_tab import VectorTab
+"""UI package exports.
 
-__all__ = [
-    "MainWindow",
-    "FeatureTab",
-    "MatchTab",
-    "VectorTab",
-    "SettingsTab",
-    "BatchDialog",
-    "CoordinateTab",
-    "DetectionTab",
-    "PluginDialog",
-]
+GUI modules depend on CustomTkinter and other desktop-only packages, so they are
+loaded lazily to keep non-GUI imports testable.
+"""
+
+from importlib import import_module
+
+_EXPORTS = {
+    "BatchDialog": ".batch_dialog",
+    "CoordinateTab": ".coordinate_tab",
+    "DetectionTab": ".detection_tab",
+    "FeatureTab": ".feature_tab",
+    "MainWindow": ".main_window",
+    "MatchTab": ".match_tab",
+    "PluginDialog": ".plugin_dialog",
+    "SettingsTab": ".settings_tab",
+    "VectorTab": ".vector_tab",
+}
+
+__all__ = sorted(_EXPORTS)
+
+
+def __getattr__(name):
+    if name not in _EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = import_module(_EXPORTS[name], __name__)
+    value = getattr(module, name)
+    globals()[name] = value
+    return value

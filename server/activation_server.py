@@ -1,10 +1,14 @@
 """
 RSTao-Tool 在线激活服务器
-FastAPI + SQLite，支持激活码验证、黑名单、次数限制、激活码管理
+本机内嵌 http.server + SQLite，支持激活码验证、黑名单、次数限制、激活码管理。
+生产部署建议迁移到 FastAPI/uvicorn + HTTPS + 持久化限流。
 """
 
+import argparse
 import hashlib
+import hmac
 import json
+import logging
 import os
 import secrets
 import sqlite3
@@ -12,10 +16,10 @@ import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 # 确保可以导入公共模块
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from common.paths import get_runtime_dir, get_server_data_dir, migrate_file_once
 from common.crypto import generate_machine_code_hash
 from common.license_crypto import (
     create_license_payload,
@@ -24,10 +28,27 @@ from common.license_crypto import (
     sign_license_payload,
 )
 
-# --- 轻量版：使用内置 http.server 避免额外依赖 ---
-# 生产环境建议升级为 FastAPI + uvicorn
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+server_logger = logging.getLogger("ActivationServer")
 
-DB_PATH = Path(__file__).parent / "activation.db"
+DB_PATH = get_server_data_dir() / "activation.db"
+migrate_file_once(
+    [
+        Path(__file__).parent / "activation.db",
+        get_runtime_dir() / "server" / "activation.db",
+    ],
+    DB_PATH,
+)
+MAX_REQUEST_BODY_BYTES = 16 * 1024
+TOKEN_HASH_PREFIX = "sha256$"
+
+
+def _hash_admin_token(token: str) -> str:
+    return TOKEN_HASH_PREFIX + hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _is_hashed_token(value: str) -> bool:
+    return str(value).startswith(TOKEN_HASH_PREFIX)
 
 
 def get_db() -> sqlite3.Connection:
@@ -82,6 +103,14 @@ def init_db():
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
     """)
+    rows = conn.execute("SELECT id, token FROM admin_tokens").fetchall()
+    for row in rows:
+        token = str(row["token"])
+        if not _is_hashed_token(token):
+            conn.execute(
+                "UPDATE admin_tokens SET token = ? WHERE id = ?",
+                (_hash_admin_token(token), row["id"]),
+            )
     conn.commit()
     conn.close()
 
@@ -96,9 +125,11 @@ ACTIVATION_SERVER_PORT = 18080
 class ActivationHandler(http.server.BaseHTTPRequestHandler):
     """激活服务器请求处理器"""
 
+    _rate_limits = {}
+
     def log_message(self, format, *args):
         """自定义日志格式"""
-        print(
+        server_logger.info(
             f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {self.client_address[0]} - {format % args}"
         )
 
@@ -118,11 +149,31 @@ class ActivationHandler(http.server.BaseHTTPRequestHandler):
 
     def _read_body(self) -> dict:
         """读取请求体"""
-        length = int(self.headers.get("Content-Length", 0))
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+        except ValueError as exc:
+            raise ValueError("Content-Length 无效") from exc
+        if length > MAX_REQUEST_BODY_BYTES:
+            raise ValueError("请求体过大")
         if length == 0:
             return {}
         body = self.rfile.read(length)
-        return json.loads(body.decode("utf-8"))
+        try:
+            return json.loads(body.decode("utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError("JSON 格式无效") from exc
+
+    def _rate_limit(self, scope: str, max_count: int, window_seconds: int) -> bool:
+        now = time.time()
+        key = (scope, self.client_address[0])
+        window_start, count = self.__class__._rate_limits.get(key, (now, 0))
+        if now - window_start >= window_seconds:
+            self.__class__._rate_limits[key] = (now, 1)
+            return True
+        if count >= max_count:
+            return False
+        self.__class__._rate_limits[key] = (window_start, count + 1)
+        return True
 
     def _require_admin(self) -> bool:
         """验证管理员权限"""
@@ -131,10 +182,11 @@ class ActivationHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(401, {"success": False, "message": "未授权访问"})
             return False
         token = auth[7:]
+        token_hash = _hash_admin_token(token)
         conn = get_db()
-        row = conn.execute("SELECT id FROM admin_tokens WHERE token = ?", (token,)).fetchone()
+        row = conn.execute("SELECT id, token FROM admin_tokens WHERE token = ?", (token_hash,)).fetchone()
         conn.close()
-        if not row:
+        if not row or not hmac.compare_digest(str(row["token"]), token_hash):
             self._send_json(403, {"success": False, "message": "无效的管理员令牌"})
             return False
         return True
@@ -155,23 +207,29 @@ class ActivationHandler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         """处理 POST 请求"""
-        parsed = urllib.parse.urlparse(self.path)
+        try:
+            parsed = urllib.parse.urlparse(self.path)
 
-        if parsed.path == "/api/activate":
-            self._handle_activate()
-        elif parsed.path == "/api/admin/generate":
-            if self._require_admin():
-                self._handle_admin_generate()
-        elif parsed.path == "/api/admin/revoke":
-            if self._require_admin():
-                self._handle_admin_revoke()
-        elif parsed.path == "/api/admin/blacklist":
-            if self._require_admin():
-                self._handle_admin_blacklist()
-        elif parsed.path == "/api/admin/token":
-            self._handle_admin_create_token()
-        else:
-            self._send_json(404, {"success": False, "message": "接口不存在"})
+            if parsed.path == "/api/activate":
+                self._handle_activate()
+            elif parsed.path == "/api/admin/generate":
+                if self._require_admin():
+                    self._handle_admin_generate()
+            elif parsed.path == "/api/admin/revoke":
+                if self._require_admin():
+                    self._handle_admin_revoke()
+            elif parsed.path == "/api/admin/blacklist":
+                if self._require_admin():
+                    self._handle_admin_blacklist()
+            elif parsed.path == "/api/admin/token":
+                self._handle_admin_create_token()
+            else:
+                self._send_json(404, {"success": False, "message": "接口不存在"})
+        except ValueError as exc:
+            self._send_json(400, {"success": False, "message": str(exc)})
+        except Exception:
+            server_logger.exception("POST 请求处理失败")
+            self._send_json(500, {"success": False, "message": "服务器内部错误"})
 
     def do_GET(self):
         """处理 GET 请求"""
@@ -198,6 +256,9 @@ class ActivationHandler(http.server.BaseHTTPRequestHandler):
     def _handle_activate(self):
         # 处理激活请求：POST /api/activate
         try:
+            if not self._rate_limit("activate", 20, 60):
+                self._send_json(429, {"success": False, "message": "请求过于频繁，请稍后再试"})
+                return
             body = self._read_body()
             activation_code = body.get("activation_code", "").strip()
             device_fingerprint = body.get("device_fingerprint", "").strip()
@@ -208,6 +269,9 @@ class ActivationHandler(http.server.BaseHTTPRequestHandler):
 
             if not activation_code or not device_fingerprint:
                 self._send_json(400, {"success": False, "message": "缺少必要参数"})
+                return
+            if not machine_code or machine_code.upper() == "UNKNOWN":
+                self._send_json(400, {"success": False, "message": "无法获取有效机器码"})
                 return
 
             conn = get_db()
@@ -321,7 +385,7 @@ class ActivationHandler(http.server.BaseHTTPRequestHandler):
             conn.commit()
             conn.close()
 
-            print(
+            server_logger.info(
                 f"[ACTIVATE] 激活成功 | 设备: {device_fingerprint[:16]}... | 过期: {expire_date_str}"
             )
             self._send_json(
@@ -334,9 +398,11 @@ class ActivationHandler(http.server.BaseHTTPRequestHandler):
                 },
             )
 
-        except Exception as e:
-            print(f"[ERROR] 激活失败: {e}")
-            self._send_json(500, {"success": False, "message": f"服务器内部错误: {str(e)}"})
+        except ValueError as e:
+            self._send_json(400, {"success": False, "message": str(e)})
+        except Exception:
+            server_logger.exception("激活失败")
+            self._send_json(500, {"success": False, "message": "服务器内部错误"})
 
     # ====================== 管理接口 ======================
 
@@ -360,7 +426,7 @@ class ActivationHandler(http.server.BaseHTTPRequestHandler):
         conn.commit()
         conn.close()
 
-        print(f"[ADMIN] 生成激活码: {code} | 类型: {license_type}")
+        server_logger.info(f"[ADMIN] 生成激活码: {code} | 类型: {license_type}")
         self._send_json(200, {"success": True, "code": code, "message": "激活码生成成功"})
 
     def _handle_admin_revoke(self):
@@ -376,7 +442,7 @@ class ActivationHandler(http.server.BaseHTTPRequestHandler):
         conn.commit()
         conn.close()
 
-        print(f"[ADMIN] 作废激活码: {code}")
+        server_logger.info(f"[ADMIN] 作废激活码: {code}")
         self._send_json(200, {"success": True, "message": "激活码已作废"})
 
     def _handle_admin_blacklist(self):
@@ -398,13 +464,13 @@ class ActivationHandler(http.server.BaseHTTPRequestHandler):
             )
             conn.commit()
             conn.close()
-            print(f"[ADMIN] 添加黑名单: {identifier}")
+            server_logger.info(f"[ADMIN] 添加黑名单: {identifier[:16]}...")
             self._send_json(200, {"success": True, "message": f"已添加黑名单: {identifier}"})
         elif action == "remove":
             conn.execute("DELETE FROM blacklist WHERE identifier = ?", (identifier,))
             conn.commit()
             conn.close()
-            print(f"[ADMIN] 移除黑名单: {identifier}")
+            server_logger.info(f"[ADMIN] 移除黑名单: {identifier[:16]}...")
             self._send_json(200, {"success": True, "message": f"已移除黑名单: {identifier}"})
         else:
             conn.close()
@@ -414,22 +480,9 @@ class ActivationHandler(http.server.BaseHTTPRequestHandler):
         """创建管理员令牌：POST /api/admin/token（首次无需鉴权）"""
         # 安全检查：如果已有token且无鉴权，则拒绝
         # 速率限制：每IP 每小时最多2次
-        client_ip = self.client_address[0]
-        now = time.time()
-        rate_key = f"token_req_{client_ip}"
-        if not hasattr(self.__class__, "_rate_limits"):
-            self.__class__._rate_limits = {}
-        if rate_key in self.__class__._rate_limits:
-            last_time, count = self.__class__._rate_limits[rate_key]
-            if now - last_time < 3600:
-                if count >= 2:
-                    self._send_json(429, {"success": False, "message": "请求过于频繁，请稍后再试"})
-                    return
-                self.__class__._rate_limits[rate_key] = (last_time, count + 1)
-            else:
-                self.__class__._rate_limits[rate_key] = (now, 1)
-        else:
-            self.__class__._rate_limits[rate_key] = (now, 1)
+        if not self._rate_limit("admin_token", 2, 3600):
+            self._send_json(429, {"success": False, "message": "请求过于频繁，请稍后再试"})
+            return
 
         conn = get_db()
         existing = conn.execute("SELECT COUNT(*) as cnt FROM admin_tokens").fetchone()
@@ -441,7 +494,10 @@ class ActivationHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json(401, {"success": False, "message": "已有管理员，需要Bearer令牌"})
                 return
             token = auth[7:]
-            row = conn.execute("SELECT id FROM admin_tokens WHERE token = ?", (token,)).fetchone()
+            token_hash = _hash_admin_token(token)
+            row = conn.execute(
+                "SELECT id FROM admin_tokens WHERE token = ?", (token_hash,)
+            ).fetchone()
             if not row:
                 conn.close()
                 self._send_json(403, {"success": False, "message": "无效的管理员令牌"})
@@ -449,11 +505,12 @@ class ActivationHandler(http.server.BaseHTTPRequestHandler):
 
         new_token = secrets.token_hex(32)
         conn.execute(
-            "INSERT INTO admin_tokens (token, description) VALUES (?, ?)", (new_token, "管理员令牌")
+            "INSERT INTO admin_tokens (token, description) VALUES (?, ?)",
+            (_hash_admin_token(new_token), "管理员令牌"),
         )
         conn.commit()
         conn.close()
-        print(f"[ADMIN] 创建管理员令牌")
+        server_logger.info("[ADMIN] 创建管理员令牌")
         self._send_json(200, {"success": True, "token": new_token, "message": "请妥善保管此令牌"})
 
     def _handle_admin_list_codes(self):
@@ -491,17 +548,25 @@ def run_server(port: int = ACTIVATION_SERVER_PORT):
     server = http.server.HTTPServer(
         ("127.0.0.1", port), ActivationHandler
     )  # localhost only for security
-    print(f"=" * 50)
-    print(f"  RSTao-Tool 激活服务器 v2.0")
-    print(f"  监听端口: {port}")
-    print(f"  健康检查: http://localhost:{port}/api/health")
-    print(f"=" * 50)
+    server_logger.info("=" * 50)
+    server_logger.info("RSTao-Tool 激活服务器 v2.0")
+    server_logger.info("监听端口: %s", port)
+    server_logger.info("健康检查: http://localhost:%s/api/health", port)
+    server_logger.info("=" * 50)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n服务器已停止")
+        server_logger.info("服务器已停止")
         server.shutdown()
 
 
 if __name__ == "__main__":
-    run_server()
+    parser = argparse.ArgumentParser(description="RSTao-Tool activation server")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.getenv("RSTAO_ACTIVATION_PORT", ACTIVATION_SERVER_PORT)),
+        help="Listen port",
+    )
+    args = parser.parse_args()
+    run_server(args.port)

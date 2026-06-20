@@ -9,12 +9,21 @@ import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 from core.feature_detection import FeatureDetection
-from data.image_io import get_image_metadata
+from data.image_io import get_image_metadata, save_geotiff_like
 
+from .error_dialog import show_actionable_error
+from .import_preview_dialog import confirm_import
 from .raster_viewer import RasterViewer
 from .settings_manager import load_settings
 from .theme import FONT_NORMAL, FONT_SMALL, FONT_SUBTITLE, PANEL_STYLE, THEME, CollapsibleCard
-from .ui_helpers import make_button, notify, record_project_result
+from .ui_helpers import (
+    make_button,
+    mark_project_dirty,
+    notify,
+    raster_geo_transform,
+    record_data_source,
+    record_project_result,
+)
 
 
 class FeatureTab(ctk.CTkFrame):
@@ -29,6 +38,7 @@ class FeatureTab(ctk.CTkFrame):
         self.original_img = None
         self.result_img = None
         self.image_path = ""
+        self.geo_transform = None
 
         # 参数变量
         self.angle = ctk.DoubleVar(value=0.0)
@@ -276,8 +286,14 @@ class FeatureTab(ctk.CTkFrame):
             self.result_img = img
 
         # 更新显示（RasterViewer）
-        self.viewer_original.load(image_array=cv2.cvtColor(self.original_img, cv2.COLOR_BGR2RGB))
-        self.viewer_result.load(image_array=cv2.cvtColor(self.result_img, cv2.COLOR_BGR2RGB))
+        self.viewer_original.load(
+            image_array=cv2.cvtColor(self.original_img, cv2.COLOR_BGR2RGB),
+            geo_transform=self.geo_transform,
+        )
+        self.viewer_result.load(
+            image_array=cv2.cvtColor(self.result_img, cv2.COLOR_BGR2RGB),
+            geo_transform=self.geo_transform,
+        )
 
         # 更新统计信息和状态栏
         self.count_label.configure(text=f"检测到特征点：{cnt}")
@@ -291,20 +307,31 @@ class FeatureTab(ctk.CTkFrame):
         path = filedialog.askopenfilename(filetypes=[("图片", "*.png;*.jpg;*.bmp;*.tiff")])
         if path:
             try:
-                self.image_path = path
-                self.original_img = self.detector.load_image(path)
-                self.render()
-                self._update_image_metadata(path)
-                notify(self, f"图像加载完成：{os.path.basename(path)}", "success")
+                if confirm_import(self, path, "image"):
+                    self._load_image_from_path(path)
             except Exception as e:
-                messagebox.showerror("错误", f"加载失败：{str(e)}")
+                show_actionable_error(
+                    self,
+                    "图像加载失败",
+                    "影像文件没有成功导入。",
+                    "请确认文件没有损坏，或换一个较小的影像先测试。",
+                    detail=str(e),
+                )
 
-    def load_image_silent(self, path):
+    def load_image_silent(self, path, preview: bool = True):
         """从拖拽等外部入口加载图像。"""
+        if preview and not confirm_import(self, path, "image"):
+            return
+        self._load_image_from_path(path)
+
+    def _load_image_from_path(self, path):
         self.image_path = path
         self.original_img = self.detector.load_image(path)
+        source = record_data_source(self, path, "raster")
+        self.geo_transform = (source or {}).get("transform") or raster_geo_transform(path)
         self.render()
         self._update_image_metadata(path)
+        mark_project_dirty(self)
         notify(self, f"图像加载完成：{os.path.basename(path)}", "success")
 
     def save_result(self):
@@ -313,11 +340,21 @@ class FeatureTab(ctk.CTkFrame):
             messagebox.showwarning("提示", "请先加载图像并执行检测")
             return
         path = filedialog.asksaveasfilename(
-            defaultextension=".png", filetypes=[("PNG图像", "*.png"), ("JPG图像", "*.jpg")]
+            defaultextension=".png",
+            filetypes=[("PNG图像", "*.png"), ("JPG图像", "*.jpg"), ("GeoTIFF", "*.tif")],
         )
         if path:
             try:
-                self.detector.save_image(self.result_img, path)
+                if self._is_tiff(path) and self._is_tiff(self.image_path):
+                    save_geotiff_like(self.image_path, self.result_img, path, color_order="BGR")
+                else:
+                    self.detector.save_image(self.result_img, path)
+                    if self._is_tiff(self.image_path) and not self._is_tiff(path):
+                        notify(
+                            self,
+                            "Spatial reference is not preserved in PNG/JPEG exports.",
+                            "warning",
+                        )
                 record_project_result(
                     self,
                     "feature",
@@ -335,6 +372,10 @@ class FeatureTab(ctk.CTkFrame):
                 notify(self, f"结果已保存：{path}", "success")
             except Exception as e:
                 messagebox.showerror("错误", f"保存失败：{str(e)}")
+
+    @staticmethod
+    def _is_tiff(path):
+        return os.path.splitext(str(path))[1].lower() in (".tif", ".tiff")
 
     def reset_view(self):
         """重置视图参数"""
@@ -409,6 +450,7 @@ class FeatureTab(ctk.CTkFrame):
             try:
                 self.image_path = image_path
                 self.original_img = self.detector.load_image(image_path)
+                self.geo_transform = raster_geo_transform(image_path)
                 self.render()
             except Exception:
                 pass

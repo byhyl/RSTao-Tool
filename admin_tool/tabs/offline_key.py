@@ -150,6 +150,9 @@ class OfflineKeyTab:
         if not machine:
             messagebox.showerror("错误", "请输入用户机器码")
             return
+        if machine.upper() == "UNKNOWN":
+            messagebox.showerror("错误", "机器码读取失败，不能为 UNKNOWN 生成授权")
+            return
         if machine != "UNKNOWN":
             if len(machine) != 16:
                 if not messagebox.askyesno("警告", "机器码长度不是16位，是否继续生成？"):

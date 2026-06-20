@@ -1,6 +1,7 @@
 """激活界面模块 — ActivationUI（依赖 AuthManager，不依赖主程序）"""
 
 import sys
+import threading
 from tkinter import messagebox
 from typing import Callable
 
@@ -114,14 +115,15 @@ class ActivationUI:
         self.status_label.pack(pady=5)
 
         # 激活按钮
-        ctk.CTkButton(
+        self.activate_button = ctk.CTkButton(
             self.root,
             text="激活软件",
             command=self._on_activate,
             fg_color=self.config.BTN_ACTIVE_COLOR,
             width=200,
             font=self.config.FONT_MAIN,
-        ).pack(pady=15)
+        )
+        self.activate_button.pack(pady=15)
 
         self.progress_label = ctk.CTkLabel(self.root, text="", font=self.config.FONT_SMALL)
         self.progress_label.pack()
@@ -163,12 +165,19 @@ class ActivationUI:
             messagebox.showwarning("提示", "激活码格式不正确")
             return
         self.progress_label.configure(text="正在连接激活服务器...", text_color="#2563eb")
-        self.root.update()
+        self.activate_button.configure(state=ctk.DISABLED)
         server_url = self.server_url_entry.get().strip() or self.config.ACTIVATION_SERVER_URL
-        ok, msg = self.auth_manager.online_activate(code, server_url)
+
+        def work():
+            ok, msg = self.auth_manager.online_activate(code, server_url)
+            self.root.after(0, lambda: self._finish_online_activation(ok, msg))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _finish_online_activation(self, ok: bool, msg: str):
+        self.activate_button.configure(state=ctk.NORMAL)
         if not ok:
             messagebox.showerror("激活失败", msg)
-            # Clean up invalid license file
             if self.auth_manager.license_path.exists():
                 self.auth_manager.license_path.unlink()
             self.status_label.configure(text=msg, text_color="red")

@@ -1,19 +1,25 @@
-from .image_io import (
-    get_geotiff_info,
-    get_image_metadata,
-    read_geotiff_with_geo,
-    read_image,
-    save_image,
-)
-from .vector_io import read_shp, save_dwg, save_shp
+"""Data package exports with lazy optional vector dependencies."""
 
-__all__ = [
-    "read_image",
-    "save_image",
-    "get_geotiff_info",
-    "get_image_metadata",
-    "read_geotiff_with_geo",
-    "read_shp",
-    "save_shp",
-    "save_dwg",
-]
+from importlib import import_module
+
+_EXPORTS = {
+    "get_geotiff_info": ".image_io",
+    "get_image_metadata": ".image_io",
+    "read_geotiff_with_geo": ".image_io",
+    "read_image": ".image_io",
+    "save_image": ".image_io",
+    "read_shp": ".vector_io",
+    "save_shp": ".vector_io",
+    "save_dwg": ".vector_io",
+}
+
+__all__ = sorted(_EXPORTS)
+
+
+def __getattr__(name):
+    if name not in _EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = import_module(_EXPORTS[name], __name__)
+    value = getattr(module, name)
+    globals()[name] = value
+    return value

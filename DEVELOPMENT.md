@@ -7,8 +7,8 @@
 conda create -n rstao python=3.10 -y
 conda activate rstao
 
-# Install with dev dependencies
-pip install -e ".[dev,geo,ml]"
+# Install with desktop app + dev dependencies
+pip install -e ".[dev,app]"
 ```
 
 ## Architecture

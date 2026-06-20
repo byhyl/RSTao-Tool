@@ -281,35 +281,36 @@ class CoordinateSystem:
     def _parse_csv(self, path: str, ps: PointSet) -> PointSet:
         with open(path, "r", encoding="utf-8-sig") as f:
             reader = csv.reader(f)
-            header = next(reader, None)
-            x_idx = y_idx = 0
-            if header:
-                for i, h in enumerate(header):
-                    hl = h.strip().lower()
-                    if hl in ("x", "lon", "longitude", "easting", "东坐标", "经度"):
-                        x_idx = i
-                    if hl in ("y", "lat", "latitude", "northing", "北坐标", "纬度"):
-                        y_idx = i
-                for i, row in enumerate(reader):
-                    if len(row) >= 2:
-                        try:
-                            ps.points.append((float(row[x_idx]), float(row[y_idx])))
-                            ps.names.append(
-                                row[0]
-                                if len(row) > max(x_idx, y_idx)
-                                and not row[0].replace(".", "").replace("-", "").isdigit()
-                                else f"P{i+1}"
-                            )
-                        except ValueError:
-                            continue
-            else:
-                for row in reader:
-                    if len(row) >= 2:
-                        try:
-                            ps.points.append((float(row[0]), float(row[1])))
-                            ps.names.append(f"P{len(ps.points)}")
-                        except ValueError:
-                            continue
+            rows = list(reader)
+        if not rows:
+            return ps
+
+        x_names = {"x", "lon", "longitude", "easting", "东坐标", "经度"}
+        y_names = {"y", "lat", "latitude", "northing", "北坐标", "纬度"}
+        name_names = {"name", "id", "point", "点名", "名称", "编号"}
+
+        header = [cell.strip().lower() for cell in rows[0]]
+        x_idx = next((i for i, value in enumerate(header) if value in x_names), None)
+        y_idx = next((i for i, value in enumerate(header) if value in y_names), None)
+        name_idx = next((i for i, value in enumerate(header) if value in name_names), None)
+
+        has_header = x_idx is not None and y_idx is not None
+        data_rows = rows[1:] if has_header else rows
+        if not has_header:
+            x_idx, y_idx = 0, 1
+            name_idx = 2
+
+        for i, row in enumerate(data_rows):
+            if len(row) <= max(x_idx, y_idx):
+                continue
+            try:
+                ps.points.append((float(row[x_idx]), float(row[y_idx])))
+                if name_idx is not None and len(row) > name_idx and row[name_idx].strip():
+                    ps.names.append(row[name_idx].strip())
+                else:
+                    ps.names.append(f"P{i+1}")
+            except ValueError:
+                continue
         return ps
 
     def _parse_txt(self, path: str, ps: PointSet) -> PointSet:

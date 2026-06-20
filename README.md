@@ -31,7 +31,8 @@ A professional-grade Windows desktop application for GIS/Remote Sensing professi
 git clone https://github.com/byhyl/RSTao-Tool.git
 cd RSTao-Tool
 pip install -e ".[dev]"     # development
-pip install -e ".[dev,geo,ml]"  # full install with geospatial + ML
+pip install -e ".[dev,app]"  # desktop app with geospatial + ML
+pip install -e ".[full,dev]"  # enable point cloud / mesh enhanced support
 ```
 
 ### Run
