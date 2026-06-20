@@ -1,6 +1,7 @@
 name: Publish
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "v*"
@@ -30,6 +31,7 @@ jobs:
         run: |
           pyinstaller --onefile --windowed `
             --collect-data customtkinter `
+            --collect-data pyproj `
             --hidden-import wmi `
             --hidden-import pythoncom `
             --hidden-import matplotlib.backends.backend_tkagg `
@@ -46,8 +48,24 @@ jobs:
             --add-data "assets;assets" `
             main.py
 
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            $iscc = "${env:ProgramFiles}\Inno Setup 6\ISCC.exe"
+          }
+          if (-not (Test-Path $iscc)) {
+            throw "ISCC.exe not found"
+          }
+          & $iscc installer\setup.iss
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RSTao-Tool-${{ github.ref_name }}
-          path: dist/RSTao-Tool.exe
+          name: RSTao-Tool-Windows-${{ github.ref_name }}
+          path: |
+            dist/RSTao-Tool.exe
+            installer/RSTao-Tool-Setup-*.exe
