@@ -10,6 +10,7 @@ from typing import Callable, Dict, List, Optional
 import customtkinter as ctk
 from PIL import Image
 
+from common.app_icon import apply_app_icon
 from common.i18n import load_language, t
 from common.logger import logger
 from common.version import APP_AUTHOR, APP_VERSION, RELEASE_DATE
@@ -43,6 +44,7 @@ from .theme import (
     init_theme,
 )
 from .vector_tab import VectorTab
+from .viewer_3d_tab import Viewer3DTab
 
 
 # ====================== 工具函数 ======================
@@ -297,6 +299,7 @@ class MainWindow(ctk.CTk):
         self.image_processing_tab: Optional[ImageProcessingTab] = None
         self.match_tab: Optional[MatchTab] = None
         self.vector_tab: Optional[VectorTab] = None
+        self.viewer_3d_tab: Optional[Viewer3DTab] = None
 
         self.project_name_label: Optional[ctk.CTkLabel] = None
 
@@ -318,23 +321,7 @@ class MainWindow(ctk.CTk):
         self.show_welcome()
 
     def _init_window_icon(self):
-        try:
-            import sys
-            from pathlib import Path
-
-            from PIL import Image, ImageTk
-
-            base_path = (
-                Path(sys._MEIPASS) if hasattr(sys, "_MEIPASS") else Path(__file__).parent.parent
-            )
-            icon_path = base_path / "assets" / "icons" / "app.png"
-            if icon_path.exists():
-                img = Image.open(icon_path)
-                tk_img = ImageTk.PhotoImage(img)
-                self.wm_iconphoto(True, tk_img)
-                self._icon_ref = tk_img  # prevent GC
-        except Exception as e:
-            logger.warning(f"加载窗口图标失败：{str(e)}")
+        apply_app_icon(self)
 
     def show_welcome(self):
         self._clear_main_container()
@@ -425,6 +412,8 @@ class MainWindow(ctk.CTk):
                 (t("tab.detection", "目标检测"), lambda: self.switch_panel("detection")),
                 ("---", None),
                 (t("menu.batch", "批量处理") + "...", self.open_batch_dialog),
+                ("---", None),
+                ("3D 视图", lambda: self.switch_panel("viewer_3d")),
             ],
         )
         self._add_menu_button(
@@ -565,6 +554,9 @@ class MainWindow(ctk.CTk):
         self.panels["coordinate"] = CoordinateTab(self.content_frame, self.status_vars)
         self.panels["detection"] = DetectionTab(self.content_frame, self.status_vars)
         self.panels["settings"] = SettingsTab(self.content_frame)
+        self.panels["viewer_3d"] = Viewer3DTab(
+            self.content_frame, status_vars=self.status_vars, app=self
+        )
         self.feature_tab = self.panels["feature"]
         self.image_processing_tab = self.panels["image_processing"]
         self.match_tab = self.panels["match"]
@@ -572,6 +564,7 @@ class MainWindow(ctk.CTk):
         self.coordinate_tab = self.panels["coordinate"]
         self.detection_tab = self.panels["detection"]
         self.settings_tab = self.panels["settings"]
+        self.viewer_3d_tab = self.panels["viewer_3d"]
 
     def switch_panel(self, name):
         """切换显示的功能面板"""
@@ -582,6 +575,11 @@ class MainWindow(ctk.CTk):
             panel.pack(fill="both", expand=True)
             self.current_panel = panel
             self._current_panel_name = name
+            if hasattr(panel, "on_show"):
+                try:
+                    panel.on_show()
+                except Exception as exc:
+                    logger.warning(f"面板显示回调失败: {name} ({exc})")
 
     def _clear_main_container(self):
         for widget in self.main_container.winfo_children():
@@ -858,6 +856,11 @@ class MainWindow(ctk.CTk):
                 if self.settings_tab and hasattr(self.settings_tab, "get_state")
                 else {}
             )
+            viewer_3d_state = (
+                self.viewer_3d_tab.get_state()
+                if self.viewer_3d_tab and hasattr(self.viewer_3d_tab, "get_state")
+                else {}
+            )
             current_tab = {
                 "feature": "特征检测",
                 "image_processing": "图像处理",
@@ -866,6 +869,7 @@ class MainWindow(ctk.CTk):
                 "coordinate": "坐标转换",
                 "detection": "目标检测",
                 "settings": "设置",
+                "viewer_3d": "3D 视图",
             }.get(getattr(self, "_current_panel_name", "feature"), "特征检测")
 
             if self.project_manager.save_project(
@@ -877,6 +881,7 @@ class MainWindow(ctk.CTk):
                 coordinate_state=coordinate_state,
                 detection_state=detection_state,
                 settings_state=settings_state,
+                viewer_3d_state=viewer_3d_state,
                 autosave=autosave,
             ):
                 logger.info(f"项目保存成功：{self.project_manager.project_path}")
@@ -959,6 +964,7 @@ class MainWindow(ctk.CTk):
                     "坐标转换": "coordinate",
                     "目标检测": "detection",
                     "设置": "settings",
+                    "3D 视图": "viewer_3d",
                 }
                 self.switch_panel(
                     current_tab
@@ -996,6 +1002,12 @@ class MainWindow(ctk.CTk):
                 and hasattr(self.settings_tab, "set_state")
             ):
                 self.settings_tab.set_state(project["settings_tab"])
+            if (
+                self.viewer_3d_tab
+                and project.get("viewer_3d_tab")
+                and hasattr(self.viewer_3d_tab, "set_state")
+            ):
+                self.viewer_3d_tab.set_state(project["viewer_3d_tab"])
         except Exception as e:
             logger.warning("恢复项目状态失败", exc_info=True)
 
@@ -1116,6 +1128,11 @@ class MainWindow(ctk.CTk):
 
     def open_log_viewer(self):
         LogViewerDialog(self)
+
+    def _open_3d_legacy(self):
+        from .viewer_3d import Viewer3DWindow
+
+        self._viewer_3d = Viewer3DWindow(self, "RSTao 3D Viewer")
 
     def export_report(self):
         """导出匹配精度报告"""

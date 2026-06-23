@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+from common.app_icon import resolve_app_icon_path
 from common.paths import get_logs_dir, get_temp_dir
 from common.version import APP_AUTHOR, APP_COPYRIGHT, APP_NAME, APP_VERSION
 
@@ -9,7 +10,7 @@ BASE_DIR = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # ====================== 软件基本信息 ======================
 # ====================== 路径配置 ======================
-ICON_PATH = BASE_DIR / "assets" / "icon.ico"
+ICON_PATH = resolve_app_icon_path()
 LOG_DIR = get_logs_dir()
 TEMP_DIR = get_temp_dir()
 

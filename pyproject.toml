@@ -157,6 +157,7 @@ name = "RSTao-Tool"
 onefile = false
 windowed = true
 icon = "assets/icon.ico"
+datas = [["assets/icon.ico", "assets"]]
 
 [tool.setuptools]
 py-modules = ["main", "auth", "activation_ui"]

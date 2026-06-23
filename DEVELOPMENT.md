@@ -64,5 +64,5 @@ class MyPlugin(BasePlugin):
 ## Building EXE
 
 ```bash
-pyinstaller --onefile --windowed --name RSTao-Tool --icon assets/icon.ico main.py
+pyinstaller --onefile --windowed --name RSTao-Tool --icon assets/icon.ico --add-data "assets/icon.ico;assets" main.py
 ```

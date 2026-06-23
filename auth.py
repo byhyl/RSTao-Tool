@@ -163,6 +163,7 @@ class AuthManager:
         for attempt in range(3):
             try:
                 self.license_path.parent.mkdir(parents=True, exist_ok=True)
+                self._prepare_writable_file(self.license_path)
                 self.license_path.write_text(data, encoding="utf-8")
                 self._hide_file(self.license_path)
                 return True
@@ -442,6 +443,7 @@ class AuthManager:
         for path in self._trial_files():
             try:
                 path.parent.mkdir(parents=True, exist_ok=True)
+                self._prepare_writable_file(path)
                 path.write_text(text, encoding="utf-8")
                 self._hide_file(path)
             except Exception as e:
@@ -491,6 +493,7 @@ class AuthManager:
 
     def _save_last_valid_time(self):
         try:
+            self._prepare_writable_file(self._anti_tamper_file)
             self._anti_tamper_file.write_text(str(time.time()), encoding="utf-8")
             self._hide_file(self._anti_tamper_file)
         except Exception:
@@ -511,6 +514,20 @@ class AuthManager:
         try:
             subprocess.run(
                 ["attrib", "+h", str(path)],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+
+    @staticmethod
+    def _prepare_writable_file(path: Path):
+        if sys.platform != "win32" or not path.exists():
+            return
+        try:
+            subprocess.run(
+                ["attrib", "-h", "-r", str(path)],
                 check=False,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,

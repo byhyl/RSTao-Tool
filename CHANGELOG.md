@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.0.1] — 2026-06-23
+
+### Changed
+
+- Unified the app, activation, admin, installer, and shortcut icons on `assets/icon.ico`.
+- Added the UI/UX, frontend architecture, and data-flow upgrade plan.
+- Included the updated icon in PyInstaller runtime data and installer assets.
+
 ## [2.1.0] — 2026-06-05
 
 ### Architecture

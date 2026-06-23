@@ -39,6 +39,17 @@ def test_pca_component_for_multiband_image():
     assert 0 <= result.metrics["explained_ratio"] <= 1
 
 
+def test_pca_first_component_uses_largest_variance_band():
+    core = ImageProcessingCore()
+    image = np.zeros((4, 4, 3), dtype=np.float32)
+    image[:, :, 1] = np.arange(16, dtype=np.float32).reshape(4, 4)
+
+    result = core.process(image, "pca", {"component": 1})
+
+    assert result.image.max() > result.image.min()
+    assert result.metrics["explained_ratio"] > 0.99
+
+
 def test_reference_histogram_match_changes_distribution():
     source = np.zeros((16, 16), dtype=np.uint8)
     source[:, 8:] = 40

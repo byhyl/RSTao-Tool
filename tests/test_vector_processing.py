@@ -166,6 +166,45 @@ class TestSelectFeature:
         idx, fidx, feat = select_feature([layer], 999, 999, tolerance=5)
         assert feat is None
 
+    def test_select_multiline_string(self):
+        layer = create_new_layer("roads", "MultiLineString")
+        layer["features"] = [
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "MultiLineString",
+                    "coordinates": [[[0, 0], [10, 0]], [[20, 0], [30, 0]]],
+                },
+                "properties": {"id": 7},
+            }
+        ]
+
+        idx, fidx, feat = select_feature([layer], 5, 0, tolerance=1)
+
+        assert (idx, fidx) == (0, 0)
+        assert feat["properties"]["id"] == 7
+
+    def test_select_multipolygon(self):
+        layer = create_new_layer("parcels", "MultiPolygon")
+        layer["features"] = [
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "MultiPolygon",
+                    "coordinates": [
+                        [[[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]]],
+                        [[[10, 10], [14, 10], [14, 14], [10, 14], [10, 10]]],
+                    ],
+                },
+                "properties": {"id": 8},
+            }
+        ]
+
+        idx, fidx, feat = select_feature([layer], 12, 12, tolerance=1)
+
+        assert (idx, fidx) == (0, 0)
+        assert feat["properties"]["id"] == 8
+
 
 class TestShapelyCache:
     def test_ensure_cache_creates(self):

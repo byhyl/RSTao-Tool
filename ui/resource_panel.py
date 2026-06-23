@@ -183,7 +183,11 @@ class ResourcePanel(ctk.CTkFrame):
         elif source_type == "vector":
             self._switch_vector(path)
         elif source_type in {"pointcloud", "mesh"}:
-            self._register_resource_window(resource, ScenePreviewWindow(self, resource))
+            from .viewer_3d import Viewer3DWindow
+
+            viewer = Viewer3DWindow(self, f"3D \u9884\u89c8 - {resource.get('name', '')}")
+            viewer.load_from_resource(resource)
+            self._register_resource_window(resource, viewer)
         else:
             self.show_properties()
 
@@ -351,6 +355,8 @@ class ResourcePropertiesWindow(ctk.CTkToplevel):
 
 
 class ScenePreviewWindow(ctk.CTkToplevel):
+    """(legacy) Quick matplotlib 3D preview - superseded by Viewer3DWindow for full capability."""
+
     def __init__(self, parent, resource: dict):
         super().__init__(parent)
         self.resource = resource

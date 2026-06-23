@@ -18,7 +18,7 @@ from core.spatial_reference import (
 
 RASTER_EXTS = {".tif", ".tiff", ".img", ".jp2", ".vrt", ".png", ".jpg", ".jpeg", ".bmp"}
 VECTOR_EXTS = {".shp", ".geojson", ".json", ".gpkg", ".dxf"}
-POINT_CLOUD_EXTS = {".xyz", ".txt", ".csv", ".pts", ".pcd", ".las", ".laz"}
+POINT_CLOUD_EXTS = {".xyz", ".txt", ".csv", ".pts", ".pcd", ".las", ".laz", ".ply"}
 MESH_EXTS = {".obj", ".osgb", ".ply"}
 MODEL_EXTS = {".onnx", ".pt", ".pth", ".engine"}
 
@@ -127,14 +127,22 @@ def compute_resource_id(path: str | Path) -> str:
 def read_scene_preview(path: str | Path, max_points: int = 50000) -> ScenePreview:
     resource_path = Path(path)
     suffix = resource_path.suffix.lower()
-    if suffix in {".obj", ".ply"}:
+    if suffix == ".obj":
+        preview = _read_obj_preview(resource_path, max_points=max_points)
+        if preview.vertices.size:
+            return preview
         trimesh_preview = _read_trimesh_preview(resource_path, max_points=max_points)
         if trimesh_preview is not None:
             return trimesh_preview
-    if suffix == ".obj":
-        return _read_obj_preview(resource_path, max_points=max_points)
+        return preview
     if suffix == ".ply":
-        return _read_ply_preview(resource_path, max_points=max_points)
+        preview = _read_ply_preview(resource_path, max_points=max_points)
+        if preview.vertices.size or preview.warning:
+            return preview
+        trimesh_preview = _read_trimesh_preview(resource_path, max_points=max_points)
+        if trimesh_preview is not None:
+            return trimesh_preview
+        return preview
     if suffix == ".pcd":
         pcd_preview = _read_pcd_preview(resource_path, max_points=max_points)
         if pcd_preview is not None:
@@ -210,23 +218,32 @@ def _fill_pointcloud(record: ResourceRecord) -> None:
 
 def _fill_mesh(record: ResourceRecord) -> None:
     suffix = record.extension
-    if _fill_trimesh(record):
-        return
     if suffix == ".obj":
         stats = _scan_obj(Path(record.source_path), max_vertices=300000)
         record.vertex_count = stats["vertex_count"]
+        record.point_count = stats["vertex_count"]
         record.face_count = stats["face_count"]
         record.bounds = stats["bounds"]
         record.warning = stats["warning"]
+        record.format_detail = "OBJ"
+        if record.vertex_count or record.face_count:
+            return
     elif suffix == ".ply":
         header = _read_ply_header(Path(record.source_path))
         record.vertex_count = int(header.get("vertex_count", 0))
         record.point_count = record.vertex_count
         record.face_count = int(header.get("face_count", 0))
         record.format_detail = "PLY"
+        if record.vertex_count and not record.face_count:
+            record.source_type = "pointcloud"
+        if record.vertex_count or record.face_count:
+            return
     elif suffix == ".osgb":
         record.format_detail = "OSGB"
         record.warning = "OSGB 已登记为三维模型资源；内置解析需可选 OSG/OpenSceneGraph 后端。"
+        return
+    if _fill_trimesh(record):
+        return
 
 
 def _fill_las(record: ResourceRecord) -> bool:

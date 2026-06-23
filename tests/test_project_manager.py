@@ -46,6 +46,34 @@ def test_normal_save_discards_autosave(tmp_path):
     assert ProjectManager.get_backup_path(path).exists() is False
 
 
+def test_save_and_load_viewer_3d_state(tmp_path):
+    path = tmp_path / "demo.rstao"
+    state = {
+        "scene": {
+            "scene_crs": "",
+            "layers": [
+                {
+                    "id": "layer-1",
+                    "name": "cloud",
+                    "layer_type": "pointcloud",
+                    "source_path": str(tmp_path / "cloud.ply"),
+                    "point_count": 2,
+                }
+            ],
+        }
+    }
+    pm = ProjectManager()
+    pm.current_project = {"project_name": "demo"}
+    pm.project_path = str(path)
+
+    assert pm.save_project(viewer_3d_state=state, current_tab="3D 视图")
+
+    loaded = ProjectManager()
+    assert loaded.load_project(str(path))
+    assert loaded.current_project["current_tab"] == "3D 视图"
+    assert loaded.current_project["viewer_3d_tab"] == state
+
+
 def test_recent_project_cleanup(tmp_path, monkeypatch):
     existing = tmp_path / "existing.rstao"
     existing.write_text("{}", encoding="utf-8")

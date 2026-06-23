@@ -11,17 +11,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 
 from common.logger import logger
-
-# 中文字体配置
-plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
-plt.rcParams["axes.unicode_minus"] = False
 
 
 @dataclass
@@ -101,63 +93,104 @@ class ReportGenerator:
 
     def _build_match_charts(self, stats: MatchStats) -> Dict[str, str]:
         charts = {}
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
-
-        # 直方图: 匹配分数分布
         if stats.scores:
-            ax1.hist(stats.scores, bins=20, color="#6366f1", edgecolor="white", alpha=0.85)
-            ax1.axvline(
-                stats.mean_score,
-                color="#ef4444",
-                linestyle="--",
-                label=f"均值={stats.mean_score:.3f}",
+            counts, edges = np.histogram(np.asarray(stats.scores, dtype=np.float64), bins=20)
+            bars = [
+                (f"{edges[i]:.2f}-{edges[i + 1]:.2f}", int(counts[i])) for i in range(len(counts))
+            ]
+            charts["match_distribution"] = self._encode_svg(
+                self._bar_svg("匹配分数分布", bars, "相关系数区间", "频数")
             )
-            ax1.set_title("匹配分数分布")
-            ax1.set_xlabel("相关系数")
-            ax1.set_ylabel("频数")
-            ax1.legend()
-
-            # 饼图: 成功率
-            labels = ["成功", "失败"]
-            sizes = [stats.successful_pairs, stats.total_pairs - stats.successful_pairs]
-            colors = ["#22c55e", "#ef4444"]
-            ax2.pie(sizes, labels=labels, colors=colors, autopct="%1.1f%%", startangle=90)
-            ax2.set_title(f"成功率: {stats.successful_pairs}/{stats.total_pairs}")
+            failed = max(0, stats.total_pairs - stats.successful_pairs)
+            charts["match_success"] = self._encode_svg(
+                self._bar_svg(
+                    f"成功率: {stats.successful_pairs}/{stats.total_pairs}",
+                    [("成功", stats.successful_pairs), ("失败", failed)],
+                    "状态",
+                    "数量",
+                    colors=["#22c55e", "#ef4444"],
+                )
+            )
         else:
-            ax1.text(0.5, 0.5, "无数据", ha="center", va="center", fontsize=14)
-            ax2.text(0.5, 0.5, "无数据", ha="center", va="center", fontsize=14)
-
-        buf = io.BytesIO()
-        fig.tight_layout()
-        fig.savefig(buf, format="png", dpi=120, bbox_inches="tight")
-        plt.close(fig)
-        charts["match_distribution"] = base64.b64encode(buf.getvalue()).decode()
+            charts["match_distribution"] = self._encode_svg(self._empty_svg("匹配分数分布"))
         return charts
 
     def _build_feature_charts(self, stats: FeatureStats) -> Dict[str, str]:
         charts = {}
-        fig, ax = plt.subplots(figsize=(10, 5))
-
         if stats.feature_counts:
-            indices = range(len(stats.feature_counts))
-            ax.bar(indices, stats.feature_counts, color="#6366f1", alpha=0.85)
-            ax.axhline(
-                stats.mean_features,
-                color="#ef4444",
-                linestyle="--",
-                label=f"均值={stats.mean_features:.0f}",
+            bars = [(str(i + 1), int(count)) for i, count in enumerate(stats.feature_counts)]
+            charts["feature_distribution"] = self._encode_svg(
+                self._bar_svg("特征点数量分布", bars, "影像序号", "特征点数量")
             )
-            ax.set_title("特征点数量分布")
-            ax.set_xlabel("影像序号")
-            ax.set_ylabel("特征点数量")
-            ax.legend()
-
-        buf = io.BytesIO()
-        fig.tight_layout()
-        fig.savefig(buf, format="png", dpi=120, bbox_inches="tight")
-        plt.close(fig)
-        charts["feature_distribution"] = base64.b64encode(buf.getvalue()).decode()
+        else:
+            charts["feature_distribution"] = self._encode_svg(self._empty_svg("特征点数量分布"))
         return charts
+
+    @staticmethod
+    def _encode_svg(svg: str) -> str:
+        return base64.b64encode(svg.encode("utf-8")).decode("ascii")
+
+    @staticmethod
+    def _empty_svg(title: str) -> str:
+        return f"""<svg xmlns="http://www.w3.org/2000/svg" width="960" height="320" viewBox="0 0 960 320">
+<rect width="960" height="320" fill="#151827"/>
+<text x="40" y="48" fill="#e2e4e9" font-family="Microsoft YaHei,Segoe UI,sans-serif" font-size="22">{html.escape(title)}</text>
+<text x="480" y="170" fill="#8b8fa3" font-family="Microsoft YaHei,Segoe UI,sans-serif" font-size="18" text-anchor="middle">无数据</text>
+</svg>"""
+
+    @staticmethod
+    def _bar_svg(
+        title: str,
+        bars: List[Tuple[str, int]],
+        x_label: str,
+        y_label: str,
+        colors: Optional[List[str]] = None,
+    ) -> str:
+        width, height = 960, 360
+        left, right, top, bottom = 70, 30, 62, 58
+        plot_w = width - left - right
+        plot_h = height - top - bottom
+        max_value = max((value for _, value in bars), default=1) or 1
+        gap = 8
+        bar_w = max(4, (plot_w - gap * max(0, len(bars) - 1)) / max(1, len(bars)))
+        colors = colors or ["#6366f1"] * len(bars)
+
+        parts = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+            f'<rect width="{width}" height="{height}" fill="#151827"/>',
+            f'<text x="{left}" y="38" fill="#e2e4e9" font-family="Microsoft YaHei,Segoe UI,sans-serif" font-size="22">{html.escape(title)}</text>',
+            f'<line x1="{left}" y1="{top + plot_h}" x2="{left + plot_w}" y2="{top + plot_h}" stroke="#34384a"/>',
+            f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_h}" stroke="#34384a"/>',
+        ]
+        for tick in range(5):
+            value = max_value * tick / 4
+            y = top + plot_h - plot_h * tick / 4
+            parts.append(
+                f'<line x1="{left}" y1="{y:.1f}" x2="{left + plot_w}" y2="{y:.1f}" stroke="#252836"/>'
+            )
+            parts.append(
+                f'<text x="{left - 10}" y="{y + 4:.1f}" fill="#8b8fa3" font-family="Segoe UI,sans-serif" font-size="11" text-anchor="end">{value:.0f}</text>'
+            )
+        for i, (label, value) in enumerate(bars):
+            x = left + i * (bar_w + gap)
+            h = plot_h * value / max_value
+            y = top + plot_h - h
+            color = colors[i % len(colors)]
+            parts.append(
+                f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{h:.1f}" fill="{color}" rx="2"/>'
+            )
+            if len(bars) <= 12 or i % max(1, len(bars) // 10) == 0:
+                parts.append(
+                    f'<text x="{x + bar_w / 2:.1f}" y="{top + plot_h + 18}" fill="#8b8fa3" font-family="Segoe UI,sans-serif" font-size="10" text-anchor="middle">{html.escape(label)}</text>'
+                )
+        parts.append(
+            f'<text x="{left + plot_w / 2}" y="{height - 14}" fill="#8b8fa3" font-family="Microsoft YaHei,Segoe UI,sans-serif" font-size="13" text-anchor="middle">{html.escape(x_label)}</text>'
+        )
+        parts.append(
+            f'<text x="18" y="{top + plot_h / 2}" fill="#8b8fa3" font-family="Microsoft YaHei,Segoe UI,sans-serif" font-size="13" text-anchor="middle" transform="rotate(-90 18 {top + plot_h / 2})">{html.escape(y_label)}</text>'
+        )
+        parts.append("</svg>")
+        return "\n".join(parts)
 
     def _build_html(
         self,
@@ -172,7 +205,7 @@ class ReportGenerator:
 
         chart_html = ""
         for name, b64 in charts.items():
-            chart_html += f'<div class="chart"><img src="data:image/png;base64,{b64}" /></div>\n'
+            chart_html += f'<div class="chart"><img src="data:image/svg+xml;base64,{b64}" alt="{html.escape(name)}" /></div>\n'
 
         # 统计表格
         stat_rows = []

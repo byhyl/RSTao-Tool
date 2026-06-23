@@ -63,6 +63,63 @@ def test_obj_resource_metadata_and_preview(tmp_path):
     assert preview.faces.shape == (1, 3)
 
 
+def test_ply_without_faces_is_pointcloud(tmp_path):
+    ply = tmp_path / "points.ply"
+    ply.write_text(
+        "\n".join(
+            [
+                "ply",
+                "format ascii 1.0",
+                "element vertex 2",
+                "property float x",
+                "property float y",
+                "property float z",
+                "end_header",
+                "0 0 0",
+                "1 2 3",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    record = create_resource_record(ply)
+    preview = read_scene_preview(ply)
+
+    assert record["source_type"] == "pointcloud"
+    assert record["point_count"] == 2
+    assert preview.vertices.shape == (2, 3)
+
+
+def test_ply_with_faces_is_mesh(tmp_path):
+    ply = tmp_path / "mesh.ply"
+    ply.write_text(
+        "\n".join(
+            [
+                "ply",
+                "format ascii 1.0",
+                "element vertex 3",
+                "property float x",
+                "property float y",
+                "property float z",
+                "element face 1",
+                "property list uchar int vertex_indices",
+                "end_header",
+                "0 0 0",
+                "1 0 0",
+                "0 1 0",
+                "3 0 1 2",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    record = create_resource_record(ply)
+
+    assert record["source_type"] == "mesh"
+    assert record["vertex_count"] == 3
+    assert record["face_count"] == 1
+
+
 def test_trimesh_metadata_backend_is_used(tmp_path, monkeypatch):
     obj = tmp_path / "mesh.obj"
     obj.write_text("# parsed by fake trimesh\n", encoding="utf-8")

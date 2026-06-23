@@ -110,6 +110,7 @@ class ProjectManager:
             "coordinate_tab": {},
             "detection_tab": {},
             "settings_tab": {},
+            "viewer_3d_tab": {},
             "resources": [],
             "data_sources": [],
             "result_history": [],
@@ -130,6 +131,7 @@ class ProjectManager:
         coordinate_state=None,
         detection_state=None,
         settings_state=None,
+        viewer_3d_state=None,
         autosave: bool = False,
     ):
         if not self.current_project or not self.project_path:
@@ -151,6 +153,8 @@ class ProjectManager:
             self.current_project["detection_tab"] = detection_state
         if settings_state is not None:
             self.current_project["settings_tab"] = settings_state
+        if viewer_3d_state is not None:
+            self.current_project["viewer_3d_tab"] = viewer_3d_state
         if current_tab:
             self.current_project["current_tab"] = current_tab
 
@@ -195,6 +199,7 @@ class ProjectManager:
         self.current_project.setdefault("coordinate_tab", {})
         self.current_project.setdefault("detection_tab", {})
         self.current_project.setdefault("settings_tab", {})
+        self.current_project.setdefault("viewer_3d_tab", {})
         self.current_project.setdefault("resources", [])
         self.current_project.setdefault("data_sources", [])
         self.current_project.setdefault("result_history", [])

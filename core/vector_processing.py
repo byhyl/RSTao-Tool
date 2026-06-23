@@ -8,6 +8,134 @@ from common.exceptions import AlgorithmError
 from common.logger import logger
 
 
+def _polyline_length(points):
+    if len(points) < 2:
+        return 0.0
+    arr = np.asarray(points, dtype=np.float64)
+    diffs = np.diff(arr[:, :2], axis=0)
+    return float(np.sum(np.linalg.norm(diffs, axis=1)))
+
+
+def _polygon_area(points):
+    if len(points) < 4:
+        return 0.0
+    arr = np.asarray(points, dtype=np.float64)[:, :2]
+    x = arr[:, 0]
+    y = arr[:, 1]
+    return float(abs(np.dot(x[:-1], y[1:]) - np.dot(y[:-1], x[1:])) / 2.0)
+
+
+def _translate_point(point, dx, dy):
+    return [point[0] + dx, point[1] + dy, *point[2:]]
+
+
+def _translate_geometry(geometry, dx, dy):
+    gtype = geometry.get("type")
+    coords = geometry.get("coordinates")
+    if gtype == "Point":
+        new_coords = _translate_point(list(coords), dx, dy)
+    elif gtype in {"LineString", "MultiPoint"}:
+        new_coords = [_translate_point(list(point), dx, dy) for point in coords]
+    elif gtype == "Polygon":
+        new_coords = [[_translate_point(list(point), dx, dy) for point in ring] for ring in coords]
+    elif gtype == "MultiLineString":
+        new_coords = [[_translate_point(list(point), dx, dy) for point in line] for line in coords]
+    elif gtype == "MultiPolygon":
+        new_coords = [
+            [[_translate_point(list(point), dx, dy) for point in ring] for ring in polygon]
+            for polygon in coords
+        ]
+    else:
+        raise AlgorithmError(f"不支持的几何类型: {gtype}")
+    return {"type": gtype, "coordinates": new_coords}
+
+
+def _point_segment_distance(point, start, end):
+    p = np.asarray(point[:2], dtype=np.float64)
+    a = np.asarray(start[:2], dtype=np.float64)
+    b = np.asarray(end[:2], dtype=np.float64)
+    ab = b - a
+    denom = float(np.dot(ab, ab))
+    if denom <= 1e-12:
+        return float(np.linalg.norm(p - a))
+    t = float(np.clip(np.dot(p - a, ab) / denom, 0.0, 1.0))
+    projection = a + t * ab
+    return float(np.linalg.norm(p - projection))
+
+
+def _point_in_ring(point, ring):
+    x, y = point[:2]
+    inside = False
+    for i in range(len(ring) - 1):
+        x1, y1 = ring[i][:2]
+        x2, y2 = ring[i + 1][:2]
+        if (y1 > y) != (y2 > y):
+            x_cross = (x2 - x1) * (y - y1) / ((y2 - y1) or 1e-12) + x1
+            if x < x_cross:
+                inside = not inside
+    return inside
+
+
+def _ring_distance(point, ring):
+    return min(
+        (
+            _point_segment_distance(point, ring[i], ring[i + 1])
+            for i in range(max(0, len(ring) - 1))
+        ),
+        default=float("inf"),
+    )
+
+
+def _geojson_distance_to_point(geometry, x, y):
+    gtype = geometry.get("type")
+    coords = geometry.get("coordinates")
+    point = [x, y]
+    if gtype == "Point":
+        return float(np.linalg.norm(np.asarray(coords[:2], dtype=np.float64) - np.asarray(point)))
+    if gtype == "MultiPoint":
+        return min(
+            (
+                float(np.linalg.norm(np.asarray(coord[:2], dtype=np.float64) - np.asarray(point)))
+                for coord in coords
+            ),
+            default=float("inf"),
+        )
+    if gtype == "LineString":
+        return min(
+            (
+                _point_segment_distance(point, coords[i], coords[i + 1])
+                for i in range(len(coords) - 1)
+            ),
+            default=float("inf"),
+        )
+    if gtype == "MultiLineString":
+        return min(
+            (
+                _geojson_distance_to_point({"type": "LineString", "coordinates": line}, x, y)
+                for line in coords
+            ),
+            default=float("inf"),
+        )
+    if gtype == "Polygon":
+        exterior = coords[0] if coords else []
+        holes = coords[1:]
+        if len(exterior) >= 4 and _point_in_ring(point, exterior):
+            if not any(_point_in_ring(point, hole) for hole in holes if len(hole) >= 4):
+                return 0.0
+        return min(
+            (_ring_distance(point, ring) for ring in [exterior, *holes]), default=float("inf")
+        )
+    if gtype == "MultiPolygon":
+        return min(
+            (
+                _geojson_distance_to_point({"type": "Polygon", "coordinates": polygon}, x, y)
+                for polygon in coords
+            ),
+            default=float("inf"),
+        )
+    return float("inf")
+
+
 def geojson_to_shapely(geojson_geom):
     """将GeoJSON几何转换为Shapely几何对象"""
     try:
@@ -84,10 +212,8 @@ def shapely_to_geojson(shapely_geom):
 def move_feature(feature, dx, dy):
     try:
         logger.debug(f"移动要素: dx={dx:.2f}, dy={dy:.2f}")
-        shapely_geom = geojson_to_shapely(feature["geometry"])
-        moved_geom = translate(shapely_geom, dx, dy)
         new_feature = feature.copy()
-        new_feature["geometry"] = shapely_to_geojson(moved_geom)
+        new_feature["geometry"] = _translate_geometry(feature["geometry"], dx, dy)
         return new_feature
     except Exception as e:
         logger.error(f"移动要素失败: {str(e)}", exc_info=True)
@@ -133,7 +259,7 @@ def create_point_feature(x, y, template_properties=None):
 
 
 def create_line_feature(points, template_properties=None):
-    length_val = LineString(points).length  # ✅ 直接用对象属性，无需导入
+    length_val = _polyline_length(points)
     props = (
         template_properties.copy()
         if template_properties
@@ -154,10 +280,13 @@ def create_line_feature(points, template_properties=None):
 
 
 def create_polygon_feature(points, template_properties=None):
-    closed_points = points + [points[0]]
-    poly = ShapelyPolygon(closed_points)
-    length_val = round(poly.length, 2)  # ✅ 直接用对象属性
-    area_val = round(poly.area, 2)
+    if len(points) < 3:
+        raise AlgorithmError("Polygon 至少需要 3 个点")
+    closed_points = [list(point) for point in points]
+    if closed_points[0] != closed_points[-1]:
+        closed_points.append(closed_points[0].copy())
+    length_val = round(_polyline_length(closed_points), 2)
+    area_val = round(_polygon_area(closed_points), 2)
     props = (
         template_properties.copy()
         if template_properties
@@ -189,10 +318,7 @@ def _ensure_shapely_cache(layer):
         cache = layer["_shapely_cache"]
     for i, feat in enumerate(features):
         if cache[i] is None:
-            try:
-                cache[i] = geojson_to_shapely(feat["geometry"])
-            except Exception:
-                cache[i] = Point(0, 0)
+            cache[i] = feat["geometry"]
     return cache
 
 
@@ -211,10 +337,8 @@ def select_feature(layers, x, y, tolerance=5):
         for layer_idx, layer in reversed(list(enumerate(layers))):
             if not layer["visible"]:
                 continue
-            cache = _ensure_shapely_cache(layer)
             for feat_idx, feature in enumerate(layer["features"]):
-                shapely_geom = cache[feat_idx]
-                if shapely_geom.distance(Point(x, y)) < tolerance:
+                if _geojson_distance_to_point(feature["geometry"], x, y) < tolerance:
                     return layer_idx, feat_idx, feature
         return None, None, None
     except Exception as e:

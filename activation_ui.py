@@ -8,6 +8,7 @@ from typing import Callable
 import customtkinter as ctk
 
 from auth import AuthConfig, AuthManager
+from common.app_icon import apply_app_icon
 
 
 class ActivationUI:
@@ -23,6 +24,7 @@ class ActivationUI:
 
     def _init_window(self):
         self.root.title(self.config.ACTIVATION_WINDOW_TITLE)
+        apply_app_icon(self.root)
         self.root.geometry(self.config.ACTIVATION_WINDOW_SIZE)
         self.root.resizable(False, False)
         self.root.update_idletasks()

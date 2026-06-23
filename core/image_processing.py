@@ -860,13 +860,23 @@ class ImageProcessingCore:
         h, w, bands = arr.shape
         component = int(params["component"]) - 1
         component = max(0, min(component, bands - 1))
-        flat = arr.reshape(-1, bands).astype(np.float32)
+        flat = arr.reshape(-1, bands).astype(np.float64)
         mean = np.mean(flat, axis=0)
         centered = flat - mean
-        _, _, vt = np.linalg.svd(centered, full_matrices=False)
-        scores = centered @ vt.T
-        selected = scores[:, component].reshape(h, w)
-        explained = np.var(scores, axis=0)
+        cov = np.zeros((bands, bands), dtype=np.float64)
+        denom = max(len(centered) - 1, 1)
+        for i in range(bands):
+            for j in range(i, bands):
+                value = float(np.sum(centered[:, i] * centered[:, j])) / denom
+                cov[i, j] = value
+                cov[j, i] = value
+
+        eigvals, eigvecs = np.linalg.eigh(cov)
+        order = np.argsort(eigvals)[::-1]
+        eigvals = np.maximum(eigvals[order], 0.0)
+        eigvecs = eigvecs[:, order]
+        selected = np.sum(centered * eigvecs[:, component], axis=1).reshape(h, w)
+        explained = eigvals
         total = float(np.sum(explained)) or 1.0
         out = _stretch_to_uint8(selected)
         metrics = _basic_metrics(out)

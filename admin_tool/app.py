@@ -27,6 +27,7 @@ from tkcalendar import DateEntry
 # 导入公共加密模块
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from common.app_icon import apply_app_icon
 from common.paths import get_admin_data_dir, get_appdata_dir, get_runtime_dir, migrate_file_once
 
 # ====================== 配置 ======================
@@ -82,6 +83,7 @@ class AdminTool(ctk.CTk):
         self._server_config = self._load_config()
         # 窗口
         self.title(self.config.WINDOW_TITLE)
+        apply_app_icon(self)
         self.geometry(self.config.WINDOW_SIZE)
         self.resizable(True, True)
         self.minsize(800, 550)
