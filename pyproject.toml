@@ -18,11 +18,11 @@ classifiers = [
 requires-python = ">=3.10"
 dependencies = [
     "opencv-python>=4.8.0",
-    "numpy>=1.24.0",
+    "numpy>=1.24.0,<2.0",
     "matplotlib>=3.7.0",
     "Pillow>=10.0.0",
     "pycryptodome>=3.19.0",
-    "shapely>=2.0.0",
+    "shapely>=1.8.4,<2.0",
     "wmi>=1.5.1",
     "pyproj>=3.6.0",
 ]
@@ -58,8 +58,18 @@ ml = [
 
 three-d = [
     "laspy>=2.5.0",
+    "lazrs>=0.6.0",
     "open3d>=0.18.0",
+    "pyvista>=0.43.0",
     "trimesh>=4.0.0",
+]
+
+gpu-cu12 = [
+    "cupy-cuda12x[ctk]>=13.0,<14.0",
+]
+
+gpu-cu13 = [
+    "cupy-cuda12x[ctk]>=13.0,<14.0",
 ]
 
 app = [
@@ -83,8 +93,44 @@ full = [
     "tifffile>=2023.7.0",
     "onnxruntime>=1.16.0",
     "laspy>=2.5.0",
+    "lazrs>=0.6.0",
     "open3d>=0.18.0",
+    "pyvista>=0.43.0",
     "trimesh>=4.0.0",
+]
+
+full-gpu-cu12 = [
+    "customtkinter>=5.2.0",
+    "pyperclip>=1.8.0",
+    "tkcalendar>=1.6.1",
+    "fiona>=1.9.0",
+    "ezdxf>=1.1.0",
+    "rasterio>=1.3",
+    "tifffile>=2023.7.0",
+    "onnxruntime>=1.16.0",
+    "laspy>=2.5.0",
+    "lazrs>=0.6.0",
+    "open3d>=0.18.0",
+    "pyvista>=0.43.0",
+    "trimesh>=4.0.0",
+    "cupy-cuda12x[ctk]>=13.0,<14.0",
+]
+
+full-gpu-cu13 = [
+    "customtkinter>=5.2.0",
+    "pyperclip>=1.8.0",
+    "tkcalendar>=1.6.1",
+    "fiona>=1.9.0",
+    "ezdxf>=1.1.0",
+    "rasterio>=1.3",
+    "tifffile>=2023.7.0",
+    "onnxruntime>=1.16.0",
+    "laspy>=2.5.0",
+    "lazrs>=0.6.0",
+    "open3d>=0.18.0",
+    "pyvista>=0.43.0",
+    "trimesh>=4.0.0",
+    "cupy-cuda12x[ctk]>=13.0,<14.0",
 ]
 
 [tool.black]

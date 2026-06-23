@@ -23,7 +23,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,app]"
+          pip install -e ".[dev,app,three-d]"
 
       - name: Run tests
         run: |
@@ -43,8 +43,19 @@ jobs:
             --hidden-import pyproj `
             --hidden-import rasterio `
             --hidden-import onnxruntime `
+            --hidden-import laspy `
+            --hidden-import lazrs `
+            --hidden-import trimesh `
+            --hidden-import open3d `
+            --hidden-import pyvista `
+            --hidden-import vtkmodules.all `
             --collect-data rasterio `
             --collect-submodules rasterio `
+            --collect-data open3d `
+            --collect-submodules open3d `
+            --collect-data pyvista `
+            --collect-submodules pyvista `
+            --collect-submodules vtkmodules `
             --name RSTao-Tool `
             --icon assets/icon.ico `
             --add-data "i18n;i18n" `
@@ -70,8 +81,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "${{ github.ref_name }}"
-          $assets = @("dist\RSTao-Tool.exe")
-          $assets += Get-ChildItem "installer\RSTao-Tool-Setup-*.exe" | ForEach-Object { $_.FullName }
+          $assets = Get-ChildItem "installer\RSTao-Tool-Setup-*.exe" | ForEach-Object { $_.FullName }
+          if (-not $assets) {
+            throw "Installer asset not found."
+          }
 
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {
@@ -79,5 +92,5 @@ jobs:
           } else {
             gh release create $tag $assets `
               --title "RSTao-Tool $tag" `
-              --notes "Windows installer and executable built by GitHub Actions."
+              --notes "Windows installer built by GitHub Actions."
           }
