@@ -43,7 +43,11 @@ void BatchWorker::run(const BatchRequest& request) {
             }, Qt::QueuedConnection);
         }
 
-        if (!isCanceled()) {
+        if (isCanceled()) {
+            QMetaObject::invokeMethod(this, [this]() {
+                emit canceled();
+            }, Qt::QueuedConnection);
+        } else {
             int succ = m_succeeded;
             int fail = m_failed;
             QMetaObject::invokeMethod(this, [this, succ, fail]() {
