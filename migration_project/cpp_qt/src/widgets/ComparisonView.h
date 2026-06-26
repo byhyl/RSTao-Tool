@@ -46,8 +46,8 @@ private:
     void updateSceneRect();
 
     QGraphicsScene* m_scene;
-    QGraphicsPixmapItem* m_origItem;
-    QGraphicsPixmapItem* m_resultItem;
+    class ClippedPixmapItem* m_origItem;
+    class ClippedPixmapItem* m_resultItem;
     double m_zoom = 1.0;
     double m_splitRatio = 0.5;
 

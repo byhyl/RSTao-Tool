@@ -4,8 +4,33 @@
 #include <QMouseEvent>
 #include <QScrollBar>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPen>
 #include <QtMath>
+
+// Qt 6 removed QGraphicsPixmapItem::setClipPath.  Use a minimal subclass
+// that applies a QPainter clip rect during its paint so the split-comparison
+// feature still works.
+class ClippedPixmapItem : public QGraphicsPixmapItem {
+public:
+    using QGraphicsPixmapItem::QGraphicsPixmapItem;
+
+    void setClipRect(const QRectF& rect) { m_clipRect = rect; update(); }
+    void clearClip() { m_clipRect = QRectF(); update(); }
+
+    void paint(QPainter* painter, const QStyleOptionGraphicsItem*, QWidget*) override {
+        if (!m_clipRect.isValid() || m_clipRect.isEmpty()) {
+            QGraphicsPixmapItem::paint(painter, nullptr, nullptr);
+            return;
+        }
+        painter->save();
+        painter->setClipRect(m_clipRect, Qt::ReplaceClip);
+        QGraphicsPixmapItem::paint(painter, nullptr, nullptr);
+        painter->restore();
+    }
+private:
+    QRectF m_clipRect;
+};
 
 ComparisonView::ComparisonView(QWidget* parent)
     : QGraphicsView(parent)
@@ -28,8 +53,10 @@ ComparisonView::ComparisonView(QWidget* parent)
 
 void ComparisonView::setImages(const QImage& original, const QImage& result) {
     m_scene->clear();
-    m_origItem = m_scene->addPixmap(QPixmap::fromImage(original));
-    m_resultItem = m_scene->addPixmap(QPixmap::fromImage(result));
+    m_origItem = new ClippedPixmapItem(QPixmap::fromImage(original));
+    m_scene->addItem(m_origItem);
+    m_resultItem = new ClippedPixmapItem(QPixmap::fromImage(result));
+    m_scene->addItem(m_resultItem);
     m_resultItem->setZValue(1);
     updateSceneRect();
     rebuildClip();
@@ -40,7 +67,8 @@ void ComparisonView::setResultImage(const QImage& result) {
     if (m_resultItem) {
         m_resultItem->setPixmap(QPixmap::fromImage(result));
     } else {
-        m_resultItem = m_scene->addPixmap(QPixmap::fromImage(result));
+        m_resultItem = new ClippedPixmapItem(QPixmap::fromImage(result));
+        m_scene->addItem(m_resultItem);
         m_resultItem->setZValue(1);
     }
     updateSceneRect();
@@ -64,7 +92,7 @@ double ComparisonView::splitRatio() const {
 void ComparisonView::setCompareMode(bool enabled) {
     m_compareMode = enabled;
     if (!enabled && m_resultItem) {
-        // Show full result — no clipping
+        m_resultItem->clearClip();
         m_resultItem->setVisible(true);
     }
     rebuildClip();
@@ -132,14 +160,24 @@ void ComparisonView::clearOverlays() {
 void ComparisonView::rebuildClip() {
     if (!m_resultItem) return;
     if (!m_compareMode) {
+        m_resultItem->clearClip();
         m_resultItem->setVisible(true);
-        if (m_origItem) m_origItem->setVisible(false);
+        if (m_origItem) {
+            m_origItem->clearClip();
+            m_origItem->setVisible(false);
+        }
         return;
     }
-    if (m_origItem) m_origItem->setVisible(true);
+    if (m_origItem) {
+        m_origItem->clearClip();
+        m_origItem->setVisible(true);
+    }
 
-    // In Qt 6, QGraphicsPixmapItem does not support per-item clip paths.
-    // The simplest compatible approach is to show both items full-size.
+    // Show result only on the right side of the split.
+    QRectF r = m_scene->sceneRect();
+    double splitX = r.left() + m_splitRatio * r.width();
+    QRectF rightRect(splitX, r.top(), r.width() - (splitX - r.left()), r.height());
+    m_resultItem->setClipRect(rightRect);
     m_resultItem->setVisible(true);
 }
 
@@ -165,10 +203,10 @@ void ComparisonView::mousePressEvent(QMouseEvent* event) {
         return;
     }
     if (event->button() == Qt::LeftButton && m_compareMode) {
-        QPointF scenePos = mapToScene(event->pos());
-        QRectF r = m_scene->sceneRect();
-        double splitX = r.left() + m_splitRatio * r.width();
-        if (qAbs(scenePos.x() - splitX) < 10.0) {
+        QRectF sceneR = m_scene->sceneRect();
+        double splitXScene = sceneR.left() + m_splitRatio * sceneR.width();
+        QPointF splitView = mapFromScene(splitXScene, sceneR.center().y());
+        if (qAbs(event->pos().x() - splitView.x()) < 10) {
             m_draggingSplit = true;
             event->accept();
             return;
@@ -196,12 +234,12 @@ void ComparisonView::mouseMoveEvent(QMouseEvent* event) {
         event->accept();
         return;
     }
-    // Change cursor near split line
+    // Change cursor near split line (check in viewport coordinates)
     if (m_compareMode) {
-        QPointF scenePos = mapToScene(event->pos());
-        QRectF r = m_scene->sceneRect();
-        double splitX = r.left() + m_splitRatio * r.width();
-        if (qAbs(scenePos.x() - splitX) < 10.0)
+        QRectF sceneR = m_scene->sceneRect();
+        double splitXScene = sceneR.left() + m_splitRatio * sceneR.width();
+        QPointF splitView = mapFromScene(splitXScene, sceneR.center().y());
+        if (qAbs(event->pos().x() - splitView.x()) < 10)
             setCursor(Qt::SplitHCursor);
         else
             setCursor(Qt::ArrowCursor);
