@@ -128,6 +128,7 @@ set(SOURCES
     src/widgets/RasterViewerWidget.cpp
     src/tabs/ImageProcessingTab.cpp
     src/core/HistoryStack.cpp
+    src/core/PresetManager.cpp
 )
 
 set(HEADERS
@@ -145,6 +146,7 @@ set(HEADERS
     src/widgets/RasterViewerWidget.h
     src/tabs/ImageProcessingTab.h
     src/core/HistoryStack.h
+    src/core/PresetManager.h
 )
 
 set(RESOURCES

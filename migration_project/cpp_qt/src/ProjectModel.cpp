@@ -18,6 +18,7 @@ bool ProjectModel::newProject(const QString& name, const QString& path) {
     m_project["data_sources"] = QJsonArray();
     m_project["result_history"] = QJsonArray();
     m_project["task_history"] = QJsonArray();
+    m_project["image_processing_presets"] = QJsonArray();
 
     m_projectPath = path;
     return saveProject();
@@ -47,6 +48,8 @@ bool ProjectModel::loadProject(const QString& path) {
         m_project["result_history"] = QJsonArray();
     if (!m_project.contains("task_history"))
         m_project["task_history"] = QJsonArray();
+    if (!m_project.contains("image_processing_presets"))
+        m_project["image_processing_presets"] = QJsonArray();
     m_project["schema_version"] = SCHEMA_VERSION;
 
     return true;
@@ -124,6 +127,14 @@ void ProjectModel::addDataSource(const QJsonObject& source) {
     while (arr.size() > 200)
         arr.removeLast();
     m_project["data_sources"] = arr;
+}
+
+QJsonArray ProjectModel::presets() const {
+    return m_project.value("image_processing_presets").toArray();
+}
+
+void ProjectModel::setPresets(const QJsonArray& arr) {
+    m_project["image_processing_presets"] = arr;
 }
 
 QJsonObject ProjectModel::toJson() const {

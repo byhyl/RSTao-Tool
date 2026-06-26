@@ -30,9 +30,13 @@ public:
     void addResource(const QJsonObject& resource);
     void addDataSource(const QJsonObject& source);
 
+    // Presets (schema v5)
+    QJsonArray presets() const;
+    void setPresets(const QJsonArray& arr);
+
     QJsonObject toJson() const;
 
-    static const int SCHEMA_VERSION = 4;
+    static const int SCHEMA_VERSION = 5;
 
 private:
     bool writeJsonFile(const QString& path, const QJsonObject& obj) const;
