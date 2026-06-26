@@ -132,6 +132,9 @@ set(SOURCES
     src/tabs/OperatorRegistry.cpp
     src/core/HistoryStack.cpp
     src/core/PresetManager.cpp
+    src/core/ProcessingWorker.cpp
+    src/core/BatchWorker.cpp
+    src/core/ProgressableWorker.cpp
 )
 
 set(HEADERS
@@ -153,6 +156,9 @@ set(HEADERS
     src/tabs/OperatorRegistry.h
     src/core/HistoryStack.h
     src/core/PresetManager.h
+    src/core/ProcessingWorker.h
+    src/core/BatchWorker.h
+    src/core/ProgressableWorker.h
 )
 
 set(RESOURCES
