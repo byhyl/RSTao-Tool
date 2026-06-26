@@ -27,7 +27,12 @@ void BatchWorker::run(const BatchRequest& request) {
 
     startWork([this, total]() {
         for (int i = 0; i < m_inputFiles.size(); ++i) {
-            if (isCanceled()) break;
+            if (isCanceled()) {
+                QMetaObject::invokeMethod(this, [this]() {
+                    emit canceled();
+                }, Qt::QueuedConnection);
+                break;
+            }
 
             const QString& path = m_inputFiles[i];
             processFile(path, m_chain, m_outputDir, m_outputFormat, i, total);
@@ -38,11 +43,13 @@ void BatchWorker::run(const BatchRequest& request) {
             }, Qt::QueuedConnection);
         }
 
-        int succ = m_succeeded;
-        int fail = m_failed;
-        QMetaObject::invokeMethod(this, [this, succ, fail]() {
-            emit batchFinished(succ, fail);
-        }, Qt::QueuedConnection);
+        if (!isCanceled()) {
+            int succ = m_succeeded;
+            int fail = m_failed;
+            QMetaObject::invokeMethod(this, [this, succ, fail]() {
+                emit batchFinished(succ, fail);
+            }, Qt::QueuedConnection);
+        }
     });
 }
 
