@@ -463,62 +463,108 @@ Image display_preview(const Image& src, double lowPct, double highPct) {
 
 // ---- Unified dispatch ----
 
+namespace {
+
+// Forward callback helper through a per-operator call.
+// When progress is null, operators skip progress reporting (existing behavior).
+Image dispatchProcess(const Image& image, const std::string& opId,
+                      const ParamMap& params, ProgressCallback progress) {
+    auto callProgress = [&](int p) { if (progress) progress(p); };
+    callProgress(0);
+    Image result;
+
+    if (opId == "grayscale") {
+        callProgress(50);
+        result = to_grayscale(image);
+        callProgress(100);
+    } else if (opId == "color_space") {
+        callProgress(30);
+        result = convert_color_space(image, paramStr(params, "target", "HSV"));
+        callProgress(100);
+    } else if (opId == "linear_stretch") {
+        callProgress(25);
+        result = linear_stretch(image, paramDouble(params, "low_percent", 2.0),
+                                         paramDouble(params, "high_percent", 98.0));
+        callProgress(100);
+    } else if (opId == "histogram_equalization") {
+        callProgress(50);
+        result = histogram_equalize(image);
+        callProgress(100);
+    } else if (opId == "histogram_match") {
+        throw std::invalid_argument("histogram_match requires reference image, use match_histogram() directly");
+    } else if (opId == "smooth") {
+        callProgress(30);
+        result = smooth(image, paramStr(params, "method", "gaussian"),
+                                paramInt(params, "ksize", 5));
+        callProgress(100);
+    } else if (opId == "sharpen") {
+        callProgress(30);
+        result = sharpen(image, paramStr(params, "method", "unsharp_mask"),
+                                  paramDouble(params, "amount", 1.0));
+        callProgress(100);
+    } else if (opId == "edge_detect") {
+        callProgress(25);
+        result = edge_detect(image, paramStr(params, "mode", "magnitude"));
+        callProgress(100);
+    } else if (opId == "morphology") {
+        callProgress(30);
+        result = morphology(image, paramStr(params, "operation", "erode"),
+                                     paramInt(params, "ksize", 3),
+                                     paramInt(params, "iterations", 1));
+        callProgress(100);
+    } else if (opId == "threshold") {
+        callProgress(30);
+        result = threshold_binary(image, paramStr(params, "method", "otsu"),
+                                           paramDouble(params, "threshold", 127),
+                                           paramInt(params, "block_size", 11));
+        callProgress(100);
+    } else if (opId == "pca") {
+        callProgress(50);
+        result = pca_component(image, paramInt(params, "component", 1) - 1);
+        callProgress(100);
+    } else if (opId == "ihs_intensity") {
+        callProgress(50);
+        result = ihs_intensity(image);
+        callProgress(100);
+    } else if (opId == "fft_filter") {
+        callProgress(40);
+        result = fft_filter(image, paramStr(params, "mode", "lowpass"),
+                                     paramDouble(params, "radius", 30.0));
+        callProgress(70);
+        callProgress(100);
+    } else if (opId == "normalized_difference") {
+        callProgress(50);
+        result = normalized_difference(image, paramInt(params, "band_a", 1) - 1,
+                                                paramInt(params, "band_b", 2) - 1);
+        callProgress(100);
+    } else {
+        throw std::invalid_argument("Unknown operator: " + opId);
+    }
+    return result;
+}
+
+} // anonymous namespace
+
 ProcessingResult process(const Image& image, const std::string& opId, const ParamMap& params) {
     if (image.empty())
         throw std::invalid_argument("Input image is empty");
 
-    using Fn = std::function<Image()>;
-    static const std::map<std::string, Fn> dispatch = {}; // populated below
+    Image result = dispatchProcess(image, opId, params, nullptr);
 
-    // We inline dispatch since static init order isn't guaranteed with lambdas
-    Image result;
-    Metrics metrics;
-
-    if (opId == "grayscale") {
-        result = to_grayscale(image);
-    } else if (opId == "color_space") {
-        result = convert_color_space(image, paramStr(params, "target", "HSV"));
-    } else if (opId == "linear_stretch") {
-        result = linear_stretch(image, paramDouble(params, "low_percent", 2.0),
-                                         paramDouble(params, "high_percent", 98.0));
-    } else if (opId == "histogram_equalization") {
-        result = histogram_equalize(image);
-    } else if (opId == "histogram_match") {
-        // reference must be passed separately — not supported via params
-        throw std::invalid_argument("histogram_match requires reference image, use match_histogram() directly");
-    } else if (opId == "smooth") {
-        result = smooth(image, paramStr(params, "method", "gaussian"),
-                                paramInt(params, "ksize", 5));
-    } else if (opId == "sharpen") {
-        result = sharpen(image, paramStr(params, "method", "unsharp_mask"),
-                                  paramDouble(params, "amount", 1.0));
-    } else if (opId == "edge_detect") {
-        result = edge_detect(image, paramStr(params, "mode", "magnitude"));
-    } else if (opId == "morphology") {
-        result = morphology(image, paramStr(params, "operation", "erode"),
-                                     paramInt(params, "ksize", 3),
-                                     paramInt(params, "iterations", 1));
-    } else if (opId == "threshold") {
-        result = threshold_binary(image, paramStr(params, "method", "otsu"),
-                                           paramDouble(params, "threshold", 127),
-                                           paramInt(params, "block_size", 11));
-    } else if (opId == "pca") {
-        result = pca_component(image, paramInt(params, "component", 1) - 1);
-    } else if (opId == "ihs_intensity") {
-        result = ihs_intensity(image);
-    } else if (opId == "fft_filter") {
-        result = fft_filter(image, paramStr(params, "mode", "lowpass"),
-                                     paramDouble(params, "radius", 30.0));
-    } else if (opId == "normalized_difference") {
-        result = normalized_difference(image, paramInt(params, "band_a", 1) - 1,
-                                                paramInt(params, "band_b", 2) - 1);
-    } else {
-        throw std::invalid_argument("Unknown operator: " + opId);
-    }
-
-    metrics = basicMetrics(result);
+    Metrics metrics = basicMetrics(result);
     metrics["operator_id"] = opId;
+    return ProcessingResult{result, metrics, Image()};
+}
 
+ProcessingResult process(const Image& image, const std::string& opId,
+                         const ParamMap& params, ProgressCallback progress) {
+    if (image.empty())
+        throw std::invalid_argument("Input image is empty");
+
+    Image result = dispatchProcess(image, opId, params, progress);
+
+    Metrics metrics = basicMetrics(result);
+    metrics["operator_id"] = opId;
     return ProcessingResult{result, metrics, Image()};
 }
 

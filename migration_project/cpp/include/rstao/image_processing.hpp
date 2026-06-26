@@ -2,7 +2,17 @@
 
 #include "rstao/common/types.hpp"
 
+#include <functional>
+#include <stdexcept>
+
 namespace rstao {
+
+using ProgressCallback = std::function<void(int /*percent 0-100*/)>;
+
+class OperationCanceled : public std::runtime_error {
+public:
+    OperationCanceled() : std::runtime_error("Operation was canceled") {}
+};
 
 // ---- Individual operators ----
 
@@ -41,5 +51,9 @@ Image display_preview(const Image& src, double low_percent = 2.0, double high_pe
 // ---- Unified dispatch ----
 
 ProcessingResult process(const Image& image, const std::string& op_id, const ParamMap& params = {});
+
+// With progress callback — worker thread calls progress(percent) during execution.
+ProcessingResult process(const Image& image, const std::string& op_id,
+                         const ParamMap& params, ProgressCallback progress);
 
 } // namespace rstao
