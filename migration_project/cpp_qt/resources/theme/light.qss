@@ -1,0 +1,114 @@
+/* Light theme — RSTao Studio */
+QMainWindow,
+QDialog,
+QDockWidget,
+QWidget {
+    background: #f5f7fa;
+    color: #17202a;
+    font-family: "Segoe UI", "Microsoft YaHei UI", Arial, sans-serif;
+    font-size: 12px;
+}
+
+QMenuBar {
+    background: #ffffff;
+    border-bottom: 1px solid #d8dee8;
+    padding: 2px 8px;
+}
+
+QMenuBar::item {
+    background: transparent;
+    padding: 7px 12px;
+    border-radius: 4px;
+}
+
+QMenuBar::item:selected {
+    background: #e9f2ff;
+    color: #0b5cad;
+}
+
+QMenu,
+QToolTip {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    color: #17202a;
+}
+
+QMenu::item {
+    padding: 7px 28px 7px 18px;
+}
+
+QMenu::item:selected {
+    background: #dbeafe;
+    color: #0f4c81;
+}
+
+QPushButton {
+    background: #ffffff;
+    border: 1px solid #c7d0dc;
+    border-radius: 6px;
+    color: #17202a;
+    padding: 6px 10px;
+}
+
+QPushButton:hover {
+    background: #eef6ff;
+    border-color: #6aa7df;
+}
+
+QPushButton:pressed {
+    background: #d8ebff;
+}
+
+QDockWidget {
+    titlebar-close-icon: none;
+    titlebar-normal-icon: none;
+}
+
+QDockWidget::title {
+    background: #ffffff;
+    border-bottom: 1px solid #d8dee8;
+    padding: 8px 10px;
+    text-align: left;
+    color: #243447;
+    font-weight: 600;
+}
+
+QTreeWidget,
+QListWidget,
+QTableWidget,
+QPlainTextEdit,
+QTextEdit {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    color: #17202a;
+    selection-background-color: #2f80c9;
+    selection-color: #ffffff;
+}
+
+QTreeWidget::item,
+QListWidget::item {
+    padding: 5px;
+}
+
+QTreeWidget::item:hover,
+QListWidget::item:hover {
+    background: #edf6ff;
+}
+
+QLineEdit,
+QComboBox,
+QSpinBox,
+QDoubleSpinBox {
+    background: #ffffff;
+    border: 1px solid #c7d0dc;
+    border-radius: 5px;
+    color: #17202a;
+    padding: 5px 8px;
+}
+
+QStatusBar {
+    background: #ffffff;
+    border-top: 1px solid #d8dee8;
+    color: #526173;
+}

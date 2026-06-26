@@ -1,0 +1,26 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "vs2022",
+            "displayName": "Visual Studio 2022 x64",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_PREFIX_PATH": "$env{CONDA_PREFIX}/Library"
+            },
+            "environment": {
+                "PATH": "$env{CONDA_PREFIX}/Library/bin;$penv{PATH}"
+            },
+            "generator": "Visual Studio 17 2022",
+            "architecture": "x64"
+        },
+        {
+            "name": "vs2022-release",
+            "displayName": "Visual Studio 2022 x64 Release",
+            "inherits": "vs2022",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        }
+    ]
+}

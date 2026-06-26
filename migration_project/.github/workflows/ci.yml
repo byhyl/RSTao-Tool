@@ -1,0 +1,68 @@
+name: Migration Project CI
+
+on:
+  push:
+    paths:
+      - 'migration_project/**'
+  pull_request:
+    paths:
+      - 'migration_project/**'
+  workflow_dispatch:
+
+jobs:
+  python-qt:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          activate-environment: RSTao_tool
+          python-version: "3.10"
+          auto-activate-base: false
+
+      - name: Install Python Qt dependencies
+        shell: pwsh
+        run: |
+          conda install -n RSTao_tool -c conda-forge pyside6 -y
+
+      - name: Compile Python migration package
+        shell: pwsh
+        run: |
+          conda run -n RSTao_tool python -m compileall migration_project
+
+  cpp-configure-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          activate-environment: RSTao_tool
+          python-version: "3.10"
+          auto-activate-base: false
+
+      - name: Install C++ dependencies
+        shell: pwsh
+        run: |
+          conda install -n RSTao_tool -c conda-forge cmake qt6-main opencv gtest -y
+
+      - name: Configure and build rstao_core
+        shell: cmd
+        run: |
+          call conda activate RSTao_tool
+          cd migration_project\cpp
+          cmake -B build -S . -G "Visual Studio 17 2022" -A x64
+          cmake --build build --config Release
+          cd build
+          ctest --output-on-failure -C Release
+
+      - name: Configure and build RSTaoStudio
+        shell: cmd
+        run: |
+          call conda activate RSTao_tool
+          cd migration_project\cpp_qt
+          cmake -B build -S . -G "Visual Studio 17 2022" -A x64 -DCMAKE_PREFIX_PATH="%CONDA_PREFIX%\Library"
+          cmake --build build --config Release
