@@ -4,14 +4,7 @@
 #include <QTableWidget>
 #include <QPushButton>
 #include <QVector>
-#include <rstao/common/types.hpp>
-
-struct ChainStep {
-    QString opId;
-    rstao::ParamMap params;
-
-    bool isValid() const { return !opId.isEmpty(); }
-};
+#include "../core/BatchWorker.h"  // ChainStep defined here
 
 class OperatorChainWidget : public QWidget {
     Q_OBJECT
@@ -31,6 +24,8 @@ private slots:
     void refreshTable();
 
 private:
+    void syncStepsFromTable();
+
     QTableWidget* m_table;
     QPushButton* m_addBtn;
     QPushButton* m_removeBtn;

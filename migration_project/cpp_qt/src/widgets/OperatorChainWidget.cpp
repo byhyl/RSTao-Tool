@@ -68,6 +68,13 @@ OperatorChainWidget::OperatorChainWidget(QWidget* parent)
     connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged, this, [this]() {
         m_removeBtn->setEnabled(m_table->currentRow() >= 0);
     });
+
+    // Sync m_steps after drag-drop reorder so chain() returns the current order
+    connect(m_table->model(), &QAbstractItemModel::rowsMoved,
+            this, [this](const QModelIndex&, int, int, const QModelIndex&, int) {
+        syncStepsFromTable();
+        emit changed();
+    });
 }
 
 QVector<ChainStep> OperatorChainWidget::chain() const {
@@ -178,6 +185,23 @@ void OperatorChainWidget::editStep(int row) {
     }
 }
 
+void OperatorChainWidget::syncStepsFromTable() {
+    // Rebuild m_steps to match the current table row order (after drag-drop reorder).
+    // Each row stores its original index in Qt::UserRole on the nameItem.
+    QVector<ChainStep> reordered;
+    reordered.reserve(m_table->rowCount());
+    for (int row = 0; row < m_table->rowCount(); ++row) {
+        QTableWidgetItem* nameItem = m_table->item(row, 0);
+        if (!nameItem) continue;
+        bool ok = false;
+        int origIdx = nameItem->data(Qt::UserRole).toInt(&ok);
+        if (ok && origIdx >= 0 && origIdx < m_steps.size())
+            reordered.append(m_steps[origIdx]);
+    }
+    if (!reordered.isEmpty())
+        m_steps = reordered;
+}
+
 void OperatorChainWidget::refreshTable() {
     m_table->setRowCount(0);
     for (int i = 0; i < m_steps.size(); ++i) {
@@ -187,6 +211,7 @@ void OperatorChainWidget::refreshTable() {
 
         QTableWidgetItem* nameItem = new QTableWidgetItem(op ? op->id : step.opId);
         nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
+        nameItem->setData(Qt::UserRole, i);  // store original index for syncStepsFromTable
         m_table->setItem(i, 0, nameItem);
 
         // Params summary
