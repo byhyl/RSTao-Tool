@@ -18,8 +18,9 @@
 #include <opencv2/core.hpp>
 #include <rstao/common/types.hpp>
 
+#include "OperatorRegistry.h"
+
 class RasterViewerWidget;
-struct OpDef;
 
 class ImageProcessingTab : public QWidget {
     Q_OBJECT

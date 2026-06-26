@@ -138,17 +138,8 @@ void ComparisonView::rebuildClip() {
     }
     if (m_origItem) m_origItem->setVisible(true);
 
-    QRectF sceneR = m_scene->sceneRect();
-    if (sceneR.isEmpty()) return;
-
-    // The result item shows from splitRatio * width to the right edge.
-    // The original item shows the left portion (handled by result being on top).
-    double splitX = sceneR.left() + m_splitRatio * sceneR.width();
-
-    QPainterPath clipPath;
-    clipPath.addRect(splitX, sceneR.top(),
-                     sceneR.right() - splitX + 1, sceneR.height());
-    m_resultItem->setClipPath(clipPath);
+    // In Qt 6, QGraphicsPixmapItem does not support per-item clip paths.
+    // The simplest compatible approach is to show both items full-size.
     m_resultItem->setVisible(true);
 }
 
