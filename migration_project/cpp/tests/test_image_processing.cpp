@@ -7,6 +7,17 @@ using namespace rstao;
 
 namespace {
 
+cv::Mat makeColorImage() {
+    cv::Mat img(64, 64, CV_8UC3);
+    for (int y = 0; y < 64; ++y)
+        for (int x = 0; x < 64; ++x)
+            img.at<cv::Vec3b>(y, x) = cv::Vec3b(
+                static_cast<uchar>(x * 4),
+                static_cast<uchar>(y * 4),
+                static_cast<uchar>(128));
+    return img;
+}
+
 class ImageProcessingTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -166,6 +177,65 @@ TEST_F(ImageProcessingTest, ProcessDispatchInvalidOp) {
 
 TEST_F(ImageProcessingTest, ProcessDispatchEmptyImage) {
     EXPECT_THROW(process(empty, "grayscale"), std::invalid_argument);
+}
+
+// ---- Progress callback tests ----
+
+TEST(ProgressCallback, ReceivesMilestones) {
+    cv::Mat src = makeColorImage();
+    std::vector<int> milestones;
+    auto cb = [&](int p) { milestones.push_back(p); };
+
+    ProcessingResult result = process(src, "grayscale", {}, cb);
+    EXPECT_FALSE(result.image.empty());
+    ASSERT_GE(milestones.size(), 2u);
+    EXPECT_EQ(milestones.front(), 0);   // starts at 0
+    EXPECT_EQ(milestones.back(), 100);  // ends at 100
+}
+
+TEST(ProgressCallback, PassesForAllOperators) {
+    cv::Mat src = makeColorImage();
+    std::vector<std::string> opIds = {
+        "grayscale", "color_space", "linear_stretch", "histogram_equalization",
+        "smooth", "sharpen", "edge_detect", "morphology", "threshold",
+        "pca", "ihs_intensity", "fft_filter", "normalized_difference"
+    };
+    for (const auto& opId : opIds) {
+        int finalPct = 0;
+        auto cb = [&](int p) { finalPct = p; };
+        ProcessingResult result = process(src, opId, {}, cb);
+        EXPECT_FALSE(result.image.empty()) << "Operator: " << opId;
+        EXPECT_EQ(finalPct, 100) << "Operator: " << opId;
+    }
+}
+
+TEST(ProgressCallback, ParametrizedOperatorReceivesProgress) {
+    cv::Mat src = makeColorImage();
+    int lastPct = -1;
+    auto cb = [&](int p) { lastPct = p; };
+    ParamMap params;
+    params["method"] = std::string("gaussian");
+    params["ksize"] = 5;
+    ProcessingResult result = process(src, "smooth", params, cb);
+    EXPECT_FALSE(result.image.empty());
+    EXPECT_EQ(lastPct, 100);
+}
+
+TEST(ProgressCallback, ExistingOverloadStillWorks) {
+    cv::Mat src = makeColorImage();
+    // Call the old overload (no callback) — must not crash or throw
+    ProcessingResult result = process(src, "grayscale");
+    EXPECT_FALSE(result.image.empty());
+}
+
+// ---- Cancel tests ----
+
+TEST(Cancel, ThrowsOperationCanceled) {
+    cv::Mat src = makeColorImage();
+    auto cb = [&](int) -> void {
+        throw OperationCanceled();
+    };
+    EXPECT_THROW(process(src, "grayscale", {}, cb), OperationCanceled);
 }
 
 } // anonymous namespace
