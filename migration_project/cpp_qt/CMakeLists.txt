@@ -126,7 +126,10 @@ set(SOURCES
     src/workspaces/WelcomeWorkspace.cpp
     src/workspaces/ProjectWorkspace.cpp
     src/widgets/RasterViewerWidget.cpp
+    src/widgets/ComparisonView.cpp
+    src/widgets/OperatorChainWidget.cpp
     src/tabs/ImageProcessingTab.cpp
+    src/tabs/OperatorRegistry.cpp
     src/core/HistoryStack.cpp
     src/core/PresetManager.cpp
 )
@@ -144,7 +147,10 @@ set(HEADERS
     src/workspaces/WelcomeWorkspace.h
     src/workspaces/ProjectWorkspace.h
     src/widgets/RasterViewerWidget.h
+    src/widgets/ComparisonView.h
+    src/widgets/OperatorChainWidget.h
     src/tabs/ImageProcessingTab.h
+    src/tabs/OperatorRegistry.h
     src/core/HistoryStack.h
     src/core/PresetManager.h
 )
