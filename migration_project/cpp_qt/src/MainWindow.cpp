@@ -404,7 +404,7 @@ QWidget* MainWindow::ensureTab(const QString& name) {
     QWidget* tab = nullptr;
 
     if (name == "image_processing") {
-        tab = new ImageProcessingTab(nullptr);
+        tab = new ImageProcessingTab(&m_project);
     } else {
         auto* lbl = new QLabel(I18n::instance().tr("tab." + name), nullptr);
         lbl->setStyleSheet("color: #666; font-size: 18px;");

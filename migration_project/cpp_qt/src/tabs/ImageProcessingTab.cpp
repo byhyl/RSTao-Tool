@@ -119,11 +119,11 @@ ImageProcessingTab::ImageProcessingTab(ProjectModel* project, QWidget* parent)
 
     connect(m_batchWorker, &BatchWorker::progress, m_progressBar, &QProgressBar::setValue);
     connect(m_batchWorker, &BatchWorker::batchFinished, this, [this](int succeeded, int failed) {
-        m_batchLog->append(QString("// TODO: i18n batch.done succeeded=%1 failed=%2").arg(succeeded).arg(failed));
+        m_batchLog->append(I18n::instance().tr("tab.image_processing.batch.done").arg(succeeded).arg(failed));
         setState(TabState::Idle);
     });
     connect(m_batchWorker, &BatchWorker::fileFinished, this, [this](const QString& path) {
-        m_batchLog->append(QString("// TODO: i18n batch.file_processed %1").arg(path));
+        m_batchLog->append(I18n::instance().tr("tab.image_processing.batch.file_processed").arg(path));
     });
     connect(m_batchWorker, &BatchWorker::canceled, this, [this]() {
         setState(TabState::Idle);
@@ -350,7 +350,7 @@ QGroupBox* ImageProcessingTab::buildActionCard() {
 
 QWidget* ImageProcessingTab::buildBatchPanel() {
     m_batchPanel = new QGroupBox(this);
-    m_batchPanel->setVisible(false);  // TODO: i18n - collapsed by default
+    m_batchPanel->setVisible(false);  // collapsed by default
     auto* layout = new QVBoxLayout(m_batchPanel);
     layout->setSpacing(6);
 
@@ -358,7 +358,7 @@ QWidget* ImageProcessingTab::buildBatchPanel() {
     auto* inRow = new QHBoxLayout();
     auto* inLabel = new QLabel(m_batchPanel);
     inLabel->setObjectName("batchInputLabel");
-    inLabel->setText("Input Dir"); // TODO: i18n
+    inLabel->setText(I18n::instance().tr("tab.image_processing.batch.input_dir"));
     inRow->addWidget(inLabel);
     m_batchInputDir = new QLineEdit(m_batchPanel);
     inRow->addWidget(m_batchInputDir, 1);
@@ -373,7 +373,7 @@ QWidget* ImageProcessingTab::buildBatchPanel() {
     auto* outRow = new QHBoxLayout();
     auto* outLabel = new QLabel(m_batchPanel);
     outLabel->setObjectName("batchOutputLabel");
-    outLabel->setText("Output Dir"); // TODO: i18n
+    outLabel->setText(I18n::instance().tr("tab.image_processing.batch.output_dir"));
     outRow->addWidget(outLabel);
     m_batchOutputDir = new QLineEdit(m_batchPanel);
     outRow->addWidget(m_batchOutputDir, 1);
@@ -388,7 +388,7 @@ QWidget* ImageProcessingTab::buildBatchPanel() {
     auto* fmtRow = new QHBoxLayout();
     auto* fmtLabel = new QLabel(m_batchPanel);
     fmtLabel->setObjectName("batchFormatLabel");
-    fmtLabel->setText("Format"); // TODO: i18n
+    fmtLabel->setText(I18n::instance().tr("tab.image_processing.batch.format"));
     fmtRow->addWidget(fmtLabel);
     m_batchFormatCombo = new QComboBox(m_batchPanel);
     m_batchFormatCombo->addItems({"png", "jpg", "tif"});
@@ -402,7 +402,7 @@ QWidget* ImageProcessingTab::buildBatchPanel() {
 
     // Run + progress + log
     m_batchRunBtn = new QPushButton(m_batchPanel);
-    m_batchRunBtn->setText("Batch Run"); // TODO: i18n
+    m_batchRunBtn->setText(I18n::instance().tr("tab.image_processing.batch.run"));
     connect(m_batchRunBtn, &QPushButton::clicked, this, &ImageProcessingTab::onBatchRun);
     layout->addWidget(m_batchRunBtn);
 
@@ -426,25 +426,25 @@ void ImageProcessingTab::retranslateUi() {
     m_paramEmptyLabel->setText(I18n::instance().tr("tab.image_processing.no_operator_selected"));
     m_actionGroup->setTitle(I18n::instance().tr("tab.image_processing.actions"));
     m_runBtn->setText(I18n::instance().tr("tab.image_processing.run"));
-    m_undoBtn->setText("Undo");     // TODO: i18n
-    m_redoBtn->setText("Redo");     // TODO: i18n
-    m_historyBtn->setText("History"); // TODO: i18n
-    m_savePresetBtn->setText("Save");   // TODO: i18n
-    m_applyPresetBtn->setText("Apply"); // TODO: i18n
-    m_deletePresetBtn->setText("Del");  // TODO: i18n
-    m_compareCheck->setText("Compare"); // TODO: i18n
+    m_undoBtn->setText(I18n::instance().tr("tab.image_processing.undo"));
+    m_redoBtn->setText(I18n::instance().tr("tab.image_processing.redo"));
+    m_historyBtn->setText(I18n::instance().tr("tab.image_processing.history"));
+    m_savePresetBtn->setText(I18n::instance().tr("tab.image_processing.preset.save"));
+    m_applyPresetBtn->setText(I18n::instance().tr("tab.image_processing.preset.apply"));
+    m_deletePresetBtn->setText(I18n::instance().tr("tab.image_processing.preset.delete"));
+    m_compareCheck->setText(I18n::instance().tr("tab.image_processing.compare_mode"));
     m_saveResultBtn->setText(I18n::instance().tr("tab.image_processing.save_result"));
     if (auto* gb = qobject_cast<QGroupBox*>(m_batchPanel))
-        gb->setTitle("Batch Processing"); // TODO: i18n
+        gb->setTitle(I18n::instance().tr("tab.image_processing.batch.title"));
 
     // batch child widgets with objectNames
     auto* inLabel = m_batchPanel->findChild<QLabel*>("batchInputLabel");
-    if (inLabel) inLabel->setText("Input Dir"); // TODO: i18n
+    if (inLabel) inLabel->setText(I18n::instance().tr("tab.image_processing.batch.input_dir"));
     auto* outLabel = m_batchPanel->findChild<QLabel*>("batchOutputLabel");
-    if (outLabel) outLabel->setText("Output Dir"); // TODO: i18n
+    if (outLabel) outLabel->setText(I18n::instance().tr("tab.image_processing.batch.output_dir"));
     auto* fmtLabel = m_batchPanel->findChild<QLabel*>("batchFormatLabel");
-    if (fmtLabel) fmtLabel->setText("Format"); // TODO: i18n
-    m_batchRunBtn->setText("Batch Run"); // TODO: i18n
+    if (fmtLabel) fmtLabel->setText(I18n::instance().tr("tab.image_processing.batch.format"));
+    m_batchRunBtn->setText(I18n::instance().tr("tab.image_processing.batch.run"));
 
     updateParamLabels();
 }
@@ -465,7 +465,7 @@ void ImageProcessingTab::updateButtonStates() {
 
     m_runBtn->setEnabled(canRun || m_state == TabState::SingleRunning);
     if (m_state == TabState::SingleRunning) {
-        m_runBtn->setText("Cancel"); // TODO: i18n
+        m_runBtn->setText(I18n::instance().tr("tab.image_processing.cancel"));
     } else {
         m_runBtn->setText(I18n::instance().tr("tab.image_processing.run"));
     }
@@ -483,9 +483,9 @@ void ImageProcessingTab::updateButtonStates() {
     bool batchIdle = isIdle;
     m_batchRunBtn->setEnabled(batchIdle || m_state == TabState::BatchRunning);
     if (m_state == TabState::BatchRunning) {
-        m_batchRunBtn->setText("Cancel"); // TODO: i18n
+        m_batchRunBtn->setText(I18n::instance().tr("tab.image_processing.cancel"));
     } else {
-        m_batchRunBtn->setText("Batch Run"); // TODO: i18n
+        m_batchRunBtn->setText(I18n::instance().tr("tab.image_processing.batch.run"));
     }
 
     m_progressBar->setVisible(m_state != TabState::Idle);
@@ -755,7 +755,7 @@ void ImageProcessingTab::onShowHistory() {
     if (!m_history || m_history->count() == 0) return;
 
     QDialog dlg(this);
-    dlg.setWindowTitle("History"); // TODO: i18n
+    dlg.setWindowTitle(I18n::instance().tr("tab.image_processing.history.title"));
     auto* layout = new QVBoxLayout(&dlg);
     auto* list = new QListWidget(&dlg);
 
@@ -841,8 +841,8 @@ void ImageProcessingTab::onSavePreset() {
 
     bool ok = false;
     QString name = QInputDialog::getText(this,
-        "Save Preset",    // TODO: i18n
-        "Preset name:",   // TODO: i18n
+        I18n::instance().tr("tab.image_processing.preset.save_title"),
+        I18n::instance().tr("tab.image_processing.preset.name_prompt"),
         QLineEdit::Normal, QString(), &ok);
     if (!ok || name.isEmpty()) return;
 
@@ -909,7 +909,7 @@ void ImageProcessingTab::refreshPresetCombo() {
         m_presetCombo->addItem(p.name);
     }
     if (m_presetCombo->count() == 0) {
-        m_presetCombo->addItem("(none)"); // TODO: i18n
+        m_presetCombo->addItem(I18n::instance().tr("tab.image_processing.preset.none"));
         m_presetCombo->setEnabled(false);
     } else {
         m_presetCombo->setEnabled(true);
@@ -930,7 +930,7 @@ void ImageProcessingTab::onBatchRun() {
     if (inputDir.isEmpty() || outputDir.isEmpty()) {
         QMessageBox::warning(this,
             I18n::instance().tr("tab.image_processing.run_error_title"),
-            "Input and output directories must be set."); // TODO: i18n
+            I18n::instance().tr("tab.image_processing.batch.no_dir"));
         return;
     }
 
@@ -938,7 +938,7 @@ void ImageProcessingTab::onBatchRun() {
     if (chain.isEmpty()) {
         QMessageBox::warning(this,
             I18n::instance().tr("tab.image_processing.run_error_title"),
-            "Add at least one chain step."); // TODO: i18n
+            I18n::instance().tr("tab.image_processing.batch.no_chain"));
         return;
     }
 
@@ -951,7 +951,7 @@ void ImageProcessingTab::onBatchRun() {
     if (files.isEmpty()) {
         QMessageBox::warning(this,
             I18n::instance().tr("tab.image_processing.run_error_title"),
-            "No image files found in input directory."); // TODO: i18n
+            I18n::instance().tr("tab.image_processing.batch.no_files"));
         return;
     }
 
@@ -966,12 +966,12 @@ void ImageProcessingTab::onBatchRun() {
 }
 
 void ImageProcessingTab::onBatchBrowseInput() {
-    QString dir = QFileDialog::getExistingDirectory(this, "Select input folder"); // TODO: i18n
+    QString dir = QFileDialog::getExistingDirectory(this, I18n::instance().tr("tab.image_processing.batch.input_browse"));
     if (!dir.isEmpty()) m_batchInputDir->setText(dir);
 }
 
 void ImageProcessingTab::onBatchBrowseOutput() {
-    QString dir = QFileDialog::getExistingDirectory(this, "Select output folder"); // TODO: i18n
+    QString dir = QFileDialog::getExistingDirectory(this, I18n::instance().tr("tab.image_processing.batch.output_browse"));
     if (!dir.isEmpty()) m_batchOutputDir->setText(dir);
 }
 
