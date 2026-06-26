@@ -127,6 +127,7 @@ set(SOURCES
     src/workspaces/ProjectWorkspace.cpp
     src/widgets/RasterViewerWidget.cpp
     src/tabs/ImageProcessingTab.cpp
+    src/core/HistoryStack.cpp
 )
 
 set(HEADERS
@@ -143,6 +144,7 @@ set(HEADERS
     src/workspaces/ProjectWorkspace.h
     src/widgets/RasterViewerWidget.h
     src/tabs/ImageProcessingTab.h
+    src/core/HistoryStack.h
 )
 
 set(RESOURCES
