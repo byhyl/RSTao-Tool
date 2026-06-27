@@ -21,6 +21,7 @@ public:
     QList<Preset> allPresets() const;
     void savePreset(const Preset& preset);     // same name overwrites
     bool deletePreset(const QString& opId, const QString& name);
+    void saveToDisk();   // flush to ProjectModel::saveProject()
 
     bool isAvailable() const;   // false when project is null or not open
 

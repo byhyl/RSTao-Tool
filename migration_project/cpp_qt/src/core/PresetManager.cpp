@@ -70,7 +70,10 @@ QJsonArray PresetManager::presetsArray() const {
 void PresetManager::writePresetsArray(const QJsonArray& arr) {
     if (!m_project) return;
     m_project->setPresets(arr);
-    m_project->saveProject();
+}
+
+void PresetManager::saveToDisk() {
+    if (m_project) m_project->saveProject();
 }
 
 Preset PresetManager::fromJson(const QJsonObject& obj) {

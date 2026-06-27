@@ -48,7 +48,9 @@ static QImage matToQImage(const cv::Mat& mat) {
     int type = mat.type();
     QImage img;
     if (type == CV_8UC3) {
-        img = QImage(mat.data, mat.cols, mat.rows, static_cast<int>(mat.step),
+        cv::Mat rgb;
+        cv::cvtColor(mat, rgb, cv::COLOR_BGR2RGB);
+        img = QImage(rgb.data, rgb.cols, rgb.rows, static_cast<int>(rgb.step),
                      QImage::Format_RGB888).copy();
     } else if (type == CV_8UC1) {
         img = QImage(mat.data, mat.cols, mat.rows, static_cast<int>(mat.step),
@@ -56,12 +58,20 @@ static QImage matToQImage(const cv::Mat& mat) {
     } else {
         cv::Mat tmp;
         mat.convertTo(tmp, CV_8U);
-        if (tmp.channels() == 1)
+        if (tmp.channels() == 1) {
             img = QImage(tmp.data, tmp.cols, tmp.rows, static_cast<int>(tmp.step),
                          QImage::Format_Grayscale8).copy();
-        else
-            img = QImage(tmp.data, tmp.cols, tmp.rows, static_cast<int>(tmp.step),
+        } else if (tmp.channels() == 4) {
+            cv::Mat rgba;
+            cv::cvtColor(tmp, rgba, cv::COLOR_BGRA2RGBA);
+            img = QImage(rgba.data, rgba.cols, rgba.rows, static_cast<int>(rgba.step),
+                         QImage::Format_RGBA8888).copy();
+        } else {
+            cv::Mat rgb;
+            cv::cvtColor(tmp, rgb, cv::COLOR_BGR2RGB);
+            img = QImage(rgb.data, rgb.cols, rgb.rows, static_cast<int>(rgb.step),
                          QImage::Format_RGB888).copy();
+        }
     }
     return img;
 }
@@ -851,6 +861,7 @@ void ImageProcessingTab::onSavePreset() {
     p.opId = m_currentOperatorId;
     p.params = collectParams();
     m_presets->savePreset(p);
+    m_presets->saveToDisk();
     refreshPresetCombo();
 }
 
@@ -895,6 +906,7 @@ void ImageProcessingTab::onDeletePreset() {
     if (idx >= presets.size()) return;
 
     m_presets->deletePreset(m_currentOperatorId, presets[idx].name);
+    m_presets->saveToDisk();
     refreshPresetCombo();
 }
 
